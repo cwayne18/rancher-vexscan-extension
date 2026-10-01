@@ -98,36 +98,59 @@ COMPONENT_RESULTS_JSON="$(jq -c '
 
 # ConfigMaps are hard-capped at 1MiB by the apiserver, and a real scan's raw
 # JSON easily exceeds that (confirmed: 3 RKE2 images alone produced a 3.4MB
-# report). ruledOut findings (not_present/not_in_execute_path) are already
-# fully captured in the summary counts above and aren't actionable, so drop
-# them from the persisted payload first; gzip compresses the remainder
-# heavily (JSON is highly repetitive - confirmed ~27x on real data). If it's
-# still too big, fall back to dropping undetermined findings too, keeping
-# only the actionable affected/vexed buckets, and note the truncation in
-# status.message so it's visible in the UI rather than silently lossy.
+# report). Ruled-out findings are NOT dropped here - seeing exactly what was
+# ruled out, and why, is a core part of what vexscan's triage is for, not
+# noise to discard. Instead this degrades in stages, each one still gzipped
+# (JSON compresses very well - confirmed ~27x on real data):
+#   1. the full report, as-is.
+#   2. the full report with only the bulky per-finding `evidence` chains
+#      stripped (confirmed: ~190/2372 findings carried one of these on real
+#      data, accounting for >50% of raw bytes; every finding/bucket is still
+#      present, just without the deepest forensic detail).
+#   3. (last resort) capped to the top N findings per *status bucket*
+#      (affected/vexed/ruledOut/undetermined), ranked by severity within each
+#      bucket, so every bucket keeps representation instead of any one being
+#      zeroed out. status.summary's counts are never truncated at any stage.
 CONFIGMAP_SIZE_LIMIT=900000 # stay under the 1MiB apiserver cap with margin
+PER_BUCKET_FINDING_CAP="${PER_BUCKET_FINDING_CAP:-500}"
 TRUNCATION_NOTE=""
 
-jq -c '{
-  schema_version, mode,
-  results: [.results[] | {
-    target, mode, module,
-    findings: [.findings[] | select(.status != "not_present" and .status != "not_in_execute_path")]
-  }]
-}' "$WORKDIR/report.json" > "$WORKDIR/report.filtered.json"
+gzip_size() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1"; }
+
+cp "$WORKDIR/report.json" "$WORKDIR/report.filtered.json"
 gzip -c "$WORKDIR/report.filtered.json" > "$WORKDIR/report.json.gz"
 
-if [[ "$(stat -c%s "$WORKDIR/report.json.gz" 2>/dev/null || stat -f%z "$WORKDIR/report.json.gz")" -gt "$CONFIGMAP_SIZE_LIMIT" ]]; then
-  echo "==> filtered report still exceeds ${CONFIGMAP_SIZE_LIMIT} bytes compressed, dropping undetermined findings too"
-  jq -c '{
-    schema_version, mode,
-    results: [.results[] | {
-      target, mode, module,
-      findings: [.findings[] | select(.status == "linked" or .status == "reachable")]
-    }]
-  }' "$WORKDIR/report.json" > "$WORKDIR/report.filtered.json"
+if [[ "$(gzip_size "$WORKDIR/report.json.gz")" -gt "$CONFIGMAP_SIZE_LIMIT" ]]; then
+  echo "==> full report exceeds ${CONFIGMAP_SIZE_LIMIT} bytes compressed, stripping per-finding evidence chains"
+  jq -c 'del(.results[].findings[].evidence)' "$WORKDIR/report.json" > "$WORKDIR/report.filtered.json"
   gzip -c "$WORKDIR/report.filtered.json" > "$WORKDIR/report.json.gz"
-  TRUNCATION_NOTE="persisted report was truncated to affected/vexed findings only due to ConfigMap size limits; counts in summary remain accurate"
+  TRUNCATION_NOTE="verbose per-finding evidence chains were stripped from the persisted report to fit the ConfigMap size limit; every finding's status/justification is preserved, re-run vexscan directly for full evidence"
+fi
+
+if [[ "$(gzip_size "$WORKDIR/report.json.gz")" -gt "$CONFIGMAP_SIZE_LIMIT" ]]; then
+  echo "==> still exceeds ${CONFIGMAP_SIZE_LIMIT} bytes compressed, capping to top ${PER_BUCKET_FINDING_CAP} findings per status bucket"
+  jq -c --argjson cap "$PER_BUCKET_FINDING_CAP" '
+    def bucket:
+      if (.status=="linked" or .status=="reachable") then
+        ((.vex.status // "") as $vs | if ($vs=="not_affected" or $vs=="fixed") then "vexed" else "affected" end)
+      elif (.status=="not_present" or .status=="not_in_execute_path") then "ruledOut"
+      else "undetermined" end;
+    def sevRank:
+      ((.severity // "") | ascii_upcase) as $s
+      | if $s=="CRITICAL" then 5 elif $s=="HIGH" then 4 elif $s=="MEDIUM" then 3 elif $s=="LOW" then 2 else 1 end;
+    ([.results[] as $r | $r.findings[] | {target: $r.target, mode: $r.mode, module: $r.module, finding: .}]) as $flat
+    | ($flat | group_by(.finding | bucket) | map(sort_by(-(.finding | sevRank)) | .[0:$cap]) | add) as $kept
+    | {
+        schema_version, mode,
+        results: ($kept | group_by(.target) | map({
+          target: .[0].target, mode: .[0].mode, module: .[0].module,
+          findings: map(.finding)
+        }))
+      }
+  ' "$WORKDIR/report.filtered.json" > "$WORKDIR/report.filtered.json.tmp"
+  mv "$WORKDIR/report.filtered.json.tmp" "$WORKDIR/report.filtered.json"
+  gzip -c "$WORKDIR/report.filtered.json" > "$WORKDIR/report.json.gz"
+  TRUNCATION_NOTE="persisted report was capped to the top ${PER_BUCKET_FINDING_CAP} findings per status bucket (affected/vexed/ruledOut/undetermined) due to ConfigMap size limits; every bucket is still represented and summary counts remain accurate for all findings"
 fi
 
 echo "==> writing report ConfigMap ${REPORT_NAME}-report ($(wc -c < "$WORKDIR/report.json.gz") bytes gzipped)"

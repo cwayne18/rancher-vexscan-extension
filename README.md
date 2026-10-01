@@ -97,12 +97,23 @@ used by tools like the Trivy Operator.
 
 Validated against a real scan: 3 RKE2 component images alone produced a
 3.4MB raw JSON report, far past the 1MiB hard limit the apiserver enforces on
-ConfigMaps/Secrets. `entrypoint.sh` therefore drops `ruledOut` findings
-(already fully captured in `status.summary`'s counts) before persisting, then
-gzips the result (JSON compresses very well here - about 27x on real data).
-If it's still over the limit, it falls back further to persisting only the
-actionable `affected`/`vexed` findings and records that truncation in
-`status.message`; the summary counts themselves are never truncated.
+ConfigMaps/Secrets. Seeing exactly what was ruled out, and why, is core to
+what vexscan's triage is for, so `entrypoint.sh` never drops a whole status
+bucket to save space. Instead it degrades in stages, gzipped throughout
+(JSON compresses very well here - about 27x on real data):
+
+1. the full report, as-is.
+2. the full report with only the bulky per-finding `evidence` chains
+   stripped (confirmed: ~190/2372 findings carried one on real data,
+   accounting for over half the raw bytes - every finding and bucket is
+   still present, just without the deepest forensic detail).
+3. (last resort) capped to the top N findings per *status bucket*
+   (affected/vexed/ruledOut/undetermined), ranked by severity within each
+   bucket, so every bucket keeps representation instead of any one being
+   zeroed out.
+
+`status.summary`'s counts are never truncated at any stage, and any
+degradation is recorded in `status.message`.
 
 
 ## Repo layout
@@ -168,7 +179,9 @@ GitHub release manifest):
 - `entrypoint.sh`'s `jq` summary/bucket logic, run against real report JSON -
   counts reconcile exactly against the raw finding counts.
 - The raw-report-vs-ConfigMap-size-limit problem described above, and the
-  filter+gzip (+fallback truncation) fix, measured against real output.
+  staged gzip/strip/cap fix, measured against real output (including
+  confirming every status bucket keeps representation even under an
+  artificially tiny size limit).
 
 **Still needs a real cluster** (no docker/kind/kubectl available in the
 sandbox this was built in): CRD admission/schema validation, `--subresource

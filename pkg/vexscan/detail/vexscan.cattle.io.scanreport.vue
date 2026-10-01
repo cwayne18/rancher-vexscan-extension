@@ -30,7 +30,7 @@ export default {
         {
           name:     'reportConfigMapRef',
           label:    'Full report',
-          formatter: 'ConfigMapLink', // see README - optional formatter that links to the ConfigMap holding the gzipped vexscan JSON report (key: report.json.gz; may be filtered to affected/vexed findings if the full report exceeds the 1MiB ConfigMap limit, see status.message)
+          formatter: 'ConfigMapLink', // see README - optional formatter that links to the ConfigMap holding the gzipped vexscan JSON report (key: report.json.gz; large reports may have evidence chains stripped or be capped per status bucket to fit the 1MiB ConfigMap limit, see status.message - no bucket is ever fully dropped)
           value:    'reportConfigMapRef',
         },
       ];
