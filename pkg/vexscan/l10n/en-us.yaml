@@ -15,10 +15,22 @@ vexscan:
     noReport: No scan report yet. Run a scan to populate this page.
     rke2Version: RKE2 version
     lastScan: Last scan
-    summary:
+    bucketHeading: Triage verdict
+    bucketSubtitle: >-
+      What vexscan determined about each CVE match's actual relevance to
+      this cluster, not just its severity.
+    bucket:
       affected: Affected
-      notAffected: Not affected
-      underInvestigation: Under investigation
+      vexed: Already Vexed
+      undetermined: Undetermined
+      ruledOut: Ruled Out
+    bucketNote:
+      affected: present and loadable
+      vexed: somebody has answered
+      undetermined: needs a human
+      ruledOut: not present or unreachable
+    severityHeading: By severity
+    severitySubtitle: Breakdown of the {affected} Affected findings above
     severity:
       critical: Critical
       high: High

@@ -21,6 +21,25 @@ const SEVERITY_COLOR = {
   unknown:  '--sev-unknown-bg',
 };
 
+// Bucket keys/labels/colors/notes mirror contrib/vexscan-dashboard.py's own
+// BUCKET_*/SECTIONS/CARD_NOTES constants exactly, so the extension's UI
+// uses the same triage vocabulary vexscan users already know from the CLI
+// dashboard, rather than inventing new terms.
+const BUCKETS = [
+  {
+    key: 'affected', labelKey: 'vexscan.overview.bucket.affected', noteKey: 'vexscan.overview.bucketNote.affected', color: '--sev-critical-bg',
+  },
+  {
+    key: 'vexed', labelKey: 'vexscan.overview.bucket.vexed', noteKey: 'vexscan.overview.bucketNote.vexed', color: '--ok-border',
+  },
+  {
+    key: 'undetermined', labelKey: 'vexscan.overview.bucket.undetermined', noteKey: 'vexscan.overview.bucketNote.undetermined', color: '--sev-medium-border',
+  },
+  {
+    key: 'ruledOut', labelKey: 'vexscan.overview.bucket.ruledOut', noteKey: 'vexscan.overview.bucketNote.ruledOut', color: '--link',
+  },
+];
+
 export default {
   name: 'VexScanOverview',
 
@@ -81,6 +100,10 @@ export default {
       return this.report?.status?.lastScanTime;
     },
 
+    truncationMessage() {
+      return this.report?.status?.message || '';
+    },
+
     // "Scan Now" calls cronJob.runNow(), which creates a batch.job and
     // patches the batch.cronjob - both require the "VEX Scan - Operator"
     // RoleTemplate (see charts/vexscan-scanner/templates/roletemplates.yaml).
@@ -90,6 +113,21 @@ export default {
     canScanNow() {
       return this.$store.getters['cluster/canCreate'](WORKLOAD_TYPES.JOB)
         && this.$store.getters['cluster/canUpdate'](WORKLOAD_TYPES.CRON_JOB);
+    },
+
+    // The triage verdict - what vexscan actually determined about each CVE
+    // match, not just its severity. This is the headline of the page:
+    // most of a real scan's raw CVE matches end up ruledOut (not present or
+    // unreachable), and surfacing that - not just hiding it - is the whole
+    // point of vexscan's triage over a plain "N CVEs found" scanner.
+    bucketCards() {
+      return BUCKETS.map((b) => ({
+        key:   b.key,
+        label: this.t(b.labelKey),
+        note:  this.t(b.noteKey),
+        value: this.summary[b.key] || 0,
+        color: `var(${ b.color })`,
+      }));
     },
 
     severityCards() {
@@ -105,7 +143,13 @@ export default {
       return [
         { name: 'component', labelKey: 'vexscan.overview.table.component', value: 'component' },
         { name: 'image', labelKey: 'tableHeaders.image', value: 'image' },
-        { name: 'findings', labelKey: 'vexscan.overview.table.cve', value: 'findings' },
+        { name: 'affected', labelKey: 'vexscan.overview.bucket.affected', value: 'affected' },
+        { name: 'vexed', labelKey: 'vexscan.overview.bucket.vexed', value: 'vexed' },
+        { name: 'undetermined', labelKey: 'vexscan.overview.bucket.undetermined', value: 'undetermined' },
+        { name: 'ruledOut', labelKey: 'vexscan.overview.bucket.ruledOut', value: 'ruledOut' },
+        {
+          name: 'reportConfigMapRef', label: 'Full report', formatter: 'ConfigMapLink', value: 'reportConfigMapRef',
+        },
       ];
     },
   },
@@ -182,6 +226,11 @@ export default {
       color="info"
       :label="t('vexscan.overview.scanNowNoPermission')"
     />
+    <Banner
+      v-if="truncationMessage"
+      color="warning"
+      :label="truncationMessage"
+    />
 
     <template v-if="report">
       <div class="meta-row">
@@ -195,6 +244,37 @@ export default {
         </div>
       </div>
 
+      <h3 class="section-heading">
+        {{ t('vexscan.overview.bucketHeading') }}
+      </h3>
+      <p class="section-subtitle">
+        {{ t('vexscan.overview.bucketSubtitle') }}
+      </p>
+      <div class="bucket-row">
+        <div
+          v-for="card in bucketCards"
+          :key="card.key"
+          class="bucket-card"
+          :style="{ borderLeftColor: card.color }"
+        >
+          <div class="bucket-label">
+            {{ card.label }}
+          </div>
+          <div class="bucket-value">
+            {{ card.value }}
+          </div>
+          <div class="bucket-note">
+            {{ card.note }}
+          </div>
+        </div>
+      </div>
+
+      <h3 class="section-heading">
+        {{ t('vexscan.overview.severityHeading') }}
+      </h3>
+      <p class="section-subtitle">
+        {{ t('vexscan.overview.severitySubtitle', { affected: summary.affected || 0 }) }}
+      </p>
       <div class="severity-row">
         <div
           v-for="card in severityCards"
@@ -228,6 +308,64 @@ export default {
 </template>
 
 <style lang="scss" scoped>
+// These aren't Rancher Dashboard theme tokens (it has no notion of CVE
+// severity/VEX-triage colors) - scoped locally here using the same hex
+// values as contrib/vexscan-dashboard.py's own :root vars, so this page and
+// the CLI's HTML dashboard read as the same tool rather than inventing a
+// separate palette.
+.vexscan-overview {
+  --sev-critical-bg: #B13333;
+  --sev-high-bg: #E45C1E;
+  --sev-medium-bg: #FFE47A;
+  --sev-medium-border: #E5A200;
+  --sev-low-bg: #DFE6F2;
+  --sev-unknown-bg: #6C6C76;
+  --ok-border: #1A7A41;
+}
+
+.section-heading {
+  margin-bottom: 2px;
+}
+
+.section-subtitle {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.bucket-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.bucket-card {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-left: 4px solid;
+  border-radius: var(--border-radius);
+  padding: 12px;
+  background: var(--box-bg);
+
+  .bucket-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .bucket-value {
+    font-size: 28px;
+    font-weight: 600;
+  }
+
+  .bucket-note {
+    font-size: 12px;
+    color: var(--muted);
+  }
+}
+
 .vexscan-header {
   display: flex;
   justify-content: space-between;

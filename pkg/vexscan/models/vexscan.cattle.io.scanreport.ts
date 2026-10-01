@@ -21,7 +21,14 @@ interface ScanSummary {
 interface ComponentResult {
   component: string;
   image: string;
+  // Total finding count (== affected+vexed+undetermined+ruledOut). Kept for
+  // back-compat; prefer the bucket counts below, which are what the
+  // Overview/detail bucket breakdown actually renders.
   findings: number;
+  affected?: number;
+  vexed?: number;
+  undetermined?: number;
+  ruledOut?: number;
   reportConfigMapRef?: string;
 }
 

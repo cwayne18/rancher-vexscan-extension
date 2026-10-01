@@ -73,6 +73,21 @@ export function init($plugin: any, store: any) {
       label:    'Affected',
       getValue: (row: any) => row.status?.summary?.affected ?? 0,
     },
+    {
+      name:     'vexed',
+      label:    'Already Vexed',
+      getValue: (row: any) => row.status?.summary?.vexed ?? 0,
+    },
+    {
+      name:     'undetermined',
+      label:    'Undetermined',
+      getValue: (row: any) => row.status?.summary?.undetermined ?? 0,
+    },
+    {
+      name:     'ruledOut',
+      label:    'Ruled Out',
+      getValue: (row: any) => row.status?.summary?.ruledOut ?? 0,
+    },
     AGE,
   ]);
 

@@ -87,11 +87,27 @@ SUMMARY_JSON="$(jq -c '
     }
 ' "$WORKDIR/report.json")"
 
+# Per-component bucket counts, same bucket_of() rules as SUMMARY_JSON above.
+# Computed from the full/original report.json (never from the possibly-
+# truncated report.filtered.json), so these counts stay accurate even when
+# the persisted ConfigMap below had to be degraded - mirrors
+# status.summary's own never-truncated guarantee. "findings" is kept too
+# (= affected+vexed+undetermined+ruledOut) for anything still reading the
+# old flat field.
 COMPONENT_RESULTS_JSON="$(jq -c '
+  def bucket:
+    if (.status=="linked" or .status=="reachable") then
+      ((.vex.status // "") as $vs | if ($vs=="not_affected" or $vs=="fixed") then "vexed" else "affected" end)
+    elif (.status=="not_present" or .status=="not_in_execute_path") then "ruledOut"
+    else "undetermined" end;
   [.results[] | {
     component: (.target // .module // "unknown"),
     image: .target,
     findings: (.findings | length),
+    affected: ([.findings[] | select(bucket == "affected")] | length),
+    vexed: ([.findings[] | select(bucket == "vexed")] | length),
+    undetermined: ([.findings[] | select(bucket == "undetermined")] | length),
+    ruledOut: ([.findings[] | select(bucket == "ruledOut")] | length),
     reportConfigMapRef: $cmName
   }]
 ' --arg cmName "${REPORT_NAME}-report" "$WORKDIR/report.json")"
