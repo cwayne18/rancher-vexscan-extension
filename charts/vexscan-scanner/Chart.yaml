@@ -1,0 +1,23 @@
+apiVersion: v2
+name: vexscan-scanner
+description: |
+  Scheduled, in-cluster CVE presence/reachability scanning of the exact RKE2
+  build running on this cluster, using vexscan. Publishes results as a
+  VexScanReport custom resource for the vexscan Rancher UI extension.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - security
+  - vulnerability
+  - rke2
+  - vex
+home: https://github.com/cwayne18/rancher-vexscan-extension
+sources:
+  - https://github.com/cwayne18/vexscan
+  - https://github.com/cwayne18/rancher-vexscan-extension
+annotations:
+  catalog.cattle.io/certified: partner
+  catalog.cattle.io/display-name: vexscan Scanner
+  catalog.cattle.io/release-name: vexscan-scanner
+  catalog.cattle.io/namespace: cattle-vexscan-system

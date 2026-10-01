@@ -1,0 +1,35 @@
+# Default values for vexscan-scanner.
+
+namespace: cattle-vexscan-system
+
+image:
+  repository: ghcr.io/cwayne18/vexscan-scanner
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# Standard 5-field cron schedule (host/CronJob-controller local time).
+# Default: once a day at 03:17.
+schedule: "17 3 * * *"
+
+# Only images matching this image-manifest "component" prefix are triaged as
+# RKE2 system images; vexscan itself still scans every image in the manifest,
+# this just controls what's considered "core" vs "addon" in the dashboard
+# grouping.
+rke2ImagePrefix: "rancher/"
+
+# Name of the VexScanReport custom resource this chart's CronJob/Job will
+# create-or-patch. Must match pkg/vexscan/pages/overview.vue's REPORT_NAME.
+reportName: cluster-scan
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# How many completed/failed Jobs (manual "Scan Now" runs included) to keep
+# around for `kubectl logs`/troubleshooting.
+successfulJobsHistoryLimit: 3
+failedJobsHistoryLimit: 3

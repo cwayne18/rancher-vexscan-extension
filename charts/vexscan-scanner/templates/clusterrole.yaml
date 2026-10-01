@@ -1,0 +1,18 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vexscan-scanner
+rules:
+  # Read node kubelet versions to resolve the exact RKE2 build running on
+  # the cluster.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  # Read/write the VexScanReport CR (and its status subresource) this chart
+  # owns.
+  - apiGroups: ["vexscan.cattle.io"]
+    resources: ["vexscanreports"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["vexscan.cattle.io"]
+    resources: ["vexscanreports/status"]
+    verbs: ["get", "update", "patch"]

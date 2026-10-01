@@ -1,2 +1,152 @@
 # rancher-vexscan-extension
-Rancher UI extension for vexscan: in-cluster VEX-backed CVE triage, scoped to the exact RKE2 version running on each downstream cluster
+
+A Rancher Manager UI extension for [vexscan](https://github.com/cwayne18/vexscan):
+in-cluster, VEX-backed CVE presence/reachability triage, scoped to the exact
+RKE2 build running on each downstream cluster.
+
+It's the same idea as `vexscan --from-images <(kubectl get pods ...)` or
+`contrib/vexscan-dashboard.py` in the main vexscan repo, but instead of a
+one-off local command and a static HTML file you email around, the scan runs
+on a schedule inside the cluster and the results show up natively in Rancher
+- in the left nav, next to Fleet, Apps, Cluster Explorer, etc.
+
+> **Status:** design scaffold / mockup. The extension package builds and
+> installs (see below), but the backend chart and scanner image have not been
+> published yet - this repo documents and scaffolds the full architecture so
+> it can be built out incrementally.
+
+## Why "exact RKE2 version", specifically
+
+Every RKE2 GitHub release publishes an exact image manifest as a release
+asset, e.g. for `v1.30.4+rke2r1`:
+
+```
+https://github.com/rancher/rke2/releases/download/v1.30.4%2Brke2r1/rke2-images-all.linux-amd64.txt
+```
+
+A node's kubelet version *is* that release tag - `kubectl get nodes -o
+jsonpath='{.items[0].status.nodeInfo.kubeletVersion}'` on an RKE2 node
+literally returns `v1.30.4+rke2r1`. So the scanner never has to guess a
+version or scan "whatever's running" heuristically: it reads the kubelet
+version, downloads that exact release's manifest, and hands it straight to
+`vexscan --images-from <manifest> --all --triage --format json`. Upgrade the
+cluster, and the next scheduled scan automatically re-targets the new exact
+build.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Downstream Cluster
+        CJ[CronJob: vexscan-scanner] -->|kubectl get nodes| KV[kubelet version]
+        KV -->|resolves exact tag| GH[rke2 GitHub release asset:\nrke2-images-all.linux-ARCH.txt]
+        GH --> SCAN[vexscan --images-from ... --all --triage]
+        SCAN -->|summary| CR[(VexScanReport CR)]
+        SCAN -->|full JSON| CM[(ConfigMap)]
+    end
+    subgraph Rancher Manager UI
+        PROD[vexscan product\npkg/vexscan] -->|Steve API| CR
+        PROD -->|Scan Now = CronJob.runNow| CJ
+    end
+```
+
+Two halves, each in this repo:
+
+1. **`pkg/vexscan/`** - the actual Rancher Dashboard UI extension (Vue 3 +
+   `@rancher/shell`), scaffolded with the official `@rancher/extension`
+   generator. Adds a cluster-scoped "VEX Scan" product with:
+   - an **Overview** page: RKE2 version, last scan time, severity summary
+     cards, per-image findings table, and a **Scan Now** button.
+   - a generic CRD list/detail view for `VexScanReport` objects (reusing
+     Rancher's built-in generic resource pages - no bespoke list/detail
+     plumbing needed for that part).
+   - the nav entry only appears in clusters where the `vexscan.cattle.io`
+     CRD group is actually installed (`ifHaveGroup`, the same pattern
+     `rancher-gatekeeper` uses), so it doesn't show up on clusters that
+     haven't installed the chart below.
+
+2. **`charts/vexscan-scanner/`** + **`scanner/`** - the in-cluster backend.
+   A small Helm chart (installable standalone, via Rancher Apps, or via
+   Fleet) that creates:
+   - the `VexScanReport` CRD (`vexscanreports.vexscan.cattle.io`)
+   - RBAC (`ServiceAccount` + `ClusterRole`/`ClusterRoleBinding` for reading
+     node versions and the CRD; a namespaced `Role`/`RoleBinding` for writing
+     the results `ConfigMap`)
+   - a `CronJob` (default: daily) running `scanner/entrypoint.sh` in a small
+     image built on top of the real `ghcr.io/cwayne18/vexscan` image
+
+### "Scan Now" doesn't need a custom backend action
+
+The UI's "Scan Now" button does **not** call any bespoke server-side API.
+Rancher Dashboard already ships a working `runNow()` action on `batch.cronjob`
+resources (`shell/models/batch.cronjob.js`): it clones the CronJob's
+`spec.jobTemplate` into a new one-shot `Job`, owned by the CronJob, and saves
+it - exactly what you get from Workloads > CronJobs > (kebab) > **Run Now** in
+stock Rancher. `pages/overview.vue` just fetches the `vexscan-scanner`
+CronJob this chart created and calls `cronJob.runNow()`. No extra RBAC, no
+custom Steve action, no new backend endpoint.
+
+### Why a CRD status summary + separate ConfigMap, not one big object
+
+`VexScanReport.status` only holds summary severity/bucket counts and a small
+`componentResults[]` list (one row per scanned image: name, finding count, and
+a pointer to a ConfigMap). The full `vexscan --format json` output - which can
+be substantial across a whole RKE2 image manifest - is written to that
+ConfigMap instead of inline in the CR, so a big cluster doesn't risk tripping
+etcd's per-object size limit. This mirrors the summary/detail split used by
+tools like the Trivy Operator.
+
+## Repo layout
+
+```
+pkg/vexscan/              Rancher Dashboard extension package
+  product.ts               nav entry, CRD list columns, ifHaveGroup gating
+  routing/                 Overview page route + reused generic CRD routes
+  pages/overview.vue        dashboard: version, severities, table, Scan Now
+  detail/...scanreport.vue  per-report detail view
+  models/...scanreport.ts   typed getters over the CR's spec/status
+  l10n/en-us.yaml           UI copy
+  config/constants.ts       product/type name constants shared across files
+
+charts/vexscan-scanner/   Helm chart for the in-cluster backend
+  crds/                     VexScanReport CRD
+  templates/                namespace, RBAC, CronJob
+
+scanner/                  Scanner container
+  entrypoint.sh             version resolution -> manifest download -> scan -> CR/ConfigMap write
+  Dockerfile                built FROM ghcr.io/cwayne18/vexscan
+
+mockup/                   Static, self-contained HTML mockup of the Overview
+                          page (no Rancher/K8s needed to view it)
+```
+
+## Trying the extension UI
+
+Requires Node v24+ and Yarn (the official extension tooling's requirement).
+
+```sh
+yarn install
+yarn dev    # runs the dev-app shell at http://localhost:8005, pointed at a real Rancher API
+```
+
+Or build the package to load into an existing Rancher via Developer Load /
+the Extensions catalog:
+
+```sh
+yarn build-pkg vexscan
+```
+
+## Trying the mockup
+
+`mockup/dashboard.html` is a static, self-contained preview of the Overview
+page's look - open it directly in a browser, no build step or cluster
+required.
+
+## Relationship to the vexscan CLI and contrib/ scripts
+
+| | `vexscan` CLI | `contrib/vexscan-dashboard.py` | this extension |
+|---|---|---|---|
+| Runs | wherever you invoke it | local, one-off | scheduled, in-cluster |
+| Image list | you provide it | you provide it | resolved from the running RKE2 version automatically |
+| Output | stdout / file | one static HTML file | live CR + ConfigMap, browsable in Rancher |
+| Re-scan | re-run manually | re-run manually | scheduled, or one click ("Scan Now") |

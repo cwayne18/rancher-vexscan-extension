@@ -1,0 +1,31 @@
+vexscan:
+  nav:
+    overview: Overview
+  overview:
+    title: VEX Scan
+    subtitle: >-
+      Deterministic CVE presence/reachability triage for the exact RKE2
+      components running on this cluster.
+    scanNow: Scan Now
+    scanQueued: Scan queued - this can take a few minutes depending on image count.
+    noReport: No scan report yet. Run a scan to populate this page.
+    rke2Version: RKE2 version
+    lastScan: Last scan
+    summary:
+      affected: Affected
+      notAffected: Not affected
+      underInvestigation: Under investigation
+    severity:
+      critical: Critical
+      high: High
+      medium: Medium
+      low: Low
+      unknown: Unknown
+    table:
+      cve: CVE
+      component: Component
+      package: Package
+      ecosystem: Ecosystem
+      severity: Severity
+      verdict: Verdict
+      reason: Reason

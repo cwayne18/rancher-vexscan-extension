@@ -1,0 +1,97 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vexscanreports.vexscan.cattle.io
+spec:
+  group: vexscan.cattle.io
+  names:
+    kind: VexScanReport
+    plural: vexscanreports
+    singular: vexscanreport
+    shortNames:
+      - vsr
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: RKE2 Version
+          type: string
+          jsonPath: .spec.rke2Version
+        - name: Critical
+          type: integer
+          jsonPath: .status.summary.critical
+        - name: High
+          type: integer
+          jsonPath: .status.summary.high
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                # Exact kubelet-reported build, e.g. "v1.30.4+rke2r1". This is
+                # what scopes the scan to "the exact version of RKE2 running
+                # on the cluster" rather than a generic/latest manifest.
+                rke2Version:
+                  type: string
+                # Which node the version/image manifest was sourced from, for
+                # troubleshooting mixed-version upgrade rollouts.
+                sourceNode:
+                  type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Scanning, Ready, Failed]
+                lastScanTime:
+                  type: string
+                  format: date-time
+                # Full `vexscan --format json` output is NOT stored here -
+                # only summary counts, to stay well under etcd's per-object
+                # size limit on clusters with hundreds of images. The full
+                # report lives in the ConfigMap named in
+                # componentResults[].reportConfigMapRef.
+                summary:
+                  type: object
+                  properties:
+                    # Counts by vexscan --severity.
+                    critical: { type: integer }
+                    high: { type: integer }
+                    medium: { type: integer }
+                    low: { type: integer }
+                    unknown: { type: integer }
+                    # Counts by vexscan's own finding bucket (see
+                    # contrib/vexscan-dashboard.py bucket_of() in the vexscan
+                    # repo): affected, vexed (exculpatory VEX statement
+                    # applies), undetermined, ruledOut (not present/reachable).
+                    affected: { type: integer }
+                    vexed: { type: integer }
+                    undetermined: { type: integer }
+                    ruledOut: { type: integer }
+                componentResults:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      component:
+                        type: string
+                      image:
+                        type: string
+                      findings:
+                        type: integer
+                      reportConfigMapRef:
+                        type: string
+                message:
+                  type: string

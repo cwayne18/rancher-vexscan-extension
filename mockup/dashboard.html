@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>vexscan - Rancher Manager mockup</title>
+<style>
+:root {
+  --body-bg:          #FFFFFF;
+  --body-text:        #141419;
+  --muted:            #6C6C76;
+  --border:           #DCDEE7;
+  --box-bg:           #F4F5FA;
+  --header-bg:        #FFFFFF;
+  --link:             #1F67DB;
+  --table-header-bg:  #F4F5FA;
+
+  --nav-bg:           #1B1C21;
+  --nav-text:         #C7C8CE;
+  --nav-text-active:  #FFFFFF;
+  --nav-active-bg:    #2E67E0;
+
+  --sev-critical-bg:     #B13333;
+  --sev-high-bg:         #E45C1E;
+  --sev-unknown-bg:      #6C6C76;
+  --sev-medium-bg:       #FFE47A;
+  --sev-medium-text:     #473900;
+  --sev-low-bg:          #DFE6F2;
+  --sev-low-text:        #1F67DB;
+  --ok-bg:               #27AE60;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--body-bg);
+  color: var(--body-text);
+  font-size: 14px;
+}
+
+.shell { display: flex; min-height: 100vh; }
+
+/* ---- fake Rancher left nav ---- */
+.nav {
+  width: 240px;
+  flex: 0 0 240px;
+  background: var(--nav-bg);
+  color: var(--nav-text);
+  padding: 16px 0;
+}
+.nav .cluster {
+  padding: 0 16px 16px;
+  font-weight: 600;
+  color: #FFFFFF;
+  border-bottom: 1px solid #333540;
+  margin-bottom: 8px;
+}
+.nav .cluster .sub { font-weight: 400; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.nav a {
+  display: block;
+  padding: 8px 16px;
+  color: var(--nav-text);
+  text-decoration: none;
+  font-size: 13px;
+}
+.nav a:hover { background: #26272E; }
+.nav a.active { background: var(--nav-active-bg); color: var(--nav-text-active); font-weight: 600; }
+.nav .group-label {
+  padding: 16px 16px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #76777F;
+}
+
+/* ---- main content ---- */
+.main { flex: 1; min-width: 0; }
+.masthead {
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.page { padding: 24px 32px; }
+
+.vexscan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.vexscan-header h1 { margin: 0 0 4px; font-size: 22px; }
+.vexscan-header .subtitle { margin: 0; color: var(--muted); max-width: 60ch; }
+
+.btn {
+  background: var(--link);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 3px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover { opacity: 0.92; }
+
+.banner {
+  border-radius: 3px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.banner-info { background: #E8EFFC; color: #1F4FA3; border: 1px solid #C7D9F5; }
+
+.meta-row { display: flex; gap: 40px; margin-bottom: 20px; }
+.meta-item { display: flex; flex-direction: column; }
+.meta-item label { font-size: 11px; color: var(--muted); text-transform: uppercase; margin-bottom: 2px; }
+.meta-item code { font-size: 15px; }
+
+.severity-row { display: flex; gap: 12px; margin-bottom: 30px; }
+.severity-card {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-top: 3px solid;
+  border-radius: 4px;
+  padding: 14px 12px;
+  text-align: center;
+  background: var(--box-bg);
+}
+.severity-card .value { font-size: 28px; font-weight: 700; line-height: 1.2; }
+.severity-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+.sc-critical { border-top-color: var(--sev-critical-bg); }
+.sc-critical .value { color: var(--sev-critical-bg); }
+.sc-high { border-top-color: var(--sev-high-bg); }
+.sc-high .value { color: var(--sev-high-bg); }
+.sc-medium { border-top-color: #E5A200; }
+.sc-medium .value { color: #8A6D00; }
+.sc-low { border-top-color: var(--sev-low-text); }
+.sc-low .value { color: var(--sev-low-text); }
+.sc-unknown { border-top-color: var(--sev-unknown-bg); }
+.sc-unknown .value { color: var(--sev-unknown-bg); }
+
+h3 { font-size: 14px; margin: 0 0 10px; }
+
+table.report-table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.report-table thead tr { background: var(--table-header-bg); }
+.report-table th, .report-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.report-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+.report-table tbody tr:last-child td { border-bottom: none; }
+.report-table a { color: var(--link); text-decoration: none; }
+.report-table a:hover { text-decoration: underline; }
+.count-badge {
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.count-badge.zero { background: var(--box-bg); color: var(--muted); }
+.count-badge.nonzero { background: var(--sev-critical-bg); color: #FFFFFF; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Fake Rancher left nav chrome, for context only - not a real Rancher build -->
+  <nav class="nav">
+    <div class="cluster">
+      fleet-prod-01
+      <div class="sub">RKE2 v1.30.4+rke2r1</div>
+    </div>
+    <a href="#">Cluster Dashboard</a>
+    <a href="#">Projects/Namespaces</a>
+    <a href="#">Apps</a>
+    <a href="#">Workloads</a>
+    <div class="group-label">Security</div>
+    <a href="#" class="active">VEX Scan</a>
+    <a href="#">&nbsp;&nbsp;Scan Reports</a>
+    <div class="group-label">Cluster</div>
+    <a href="#">Fleet</a>
+    <a href="#">Cluster Explorer</a>
+  </nav>
+
+  <div class="main">
+    <div class="masthead">Local &rsaquo; fleet-prod-01 &rsaquo; <strong>VEX Scan</strong></div>
+
+    <div class="page">
+      <div class="vexscan-header">
+        <div>
+          <h1>VEX Scan</h1>
+          <p class="subtitle">CVE presence/reachability triage for every image in this cluster's exact RKE2 build, via vexscan.</p>
+        </div>
+        <button class="btn">&#x21bb;&nbsp; Scan Now</button>
+      </div>
+
+      <div class="banner banner-info">
+        Last scan ran 3 minutes ago via the scheduled <code>vexscan-scanner</code> CronJob. Next scheduled run: tonight at 03:17.
+      </div>
+
+      <div class="meta-row">
+        <div class="meta-item">
+          <label>RKE2 Version</label>
+          <code>v1.30.4+rke2r1</code>
+        </div>
+        <div class="meta-item">
+          <label>Last Scan</label>
+          <span>2024-06-12 03:17:02 UTC</span>
+        </div>
+        <div class="meta-item">
+          <label>Images Scanned</label>
+          <span>38</span>
+        </div>
+      </div>
+
+      <div class="severity-row">
+        <div class="severity-card sc-critical"><div class="value">2</div><div class="label">Critical</div></div>
+        <div class="severity-card sc-high"><div class="value">7</div><div class="label">High</div></div>
+        <div class="severity-card sc-medium"><div class="value">14</div><div class="label">Medium</div></div>
+        <div class="severity-card sc-low"><div class="value">21</div><div class="label">Low</div></div>
+        <div class="severity-card sc-unknown"><div class="value">3</div><div class="label">Unknown</div></div>
+      </div>
+
+      <h3>Per-image findings</h3>
+      <table class="report-table">
+        <thead>
+          <tr><th>Component</th><th>Image</th><th>Findings</th><th>Full report</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>kube-apiserver</td>
+            <td>index.docker.io/rancher/hardened-kubernetes:v1.30.4-rke2r1-build20240610</td>
+            <td><span class="count-badge nonzero">2</span></td>
+            <td><a href="#">ConfigMap&#8599;</a></td>
+          </tr>
+          <tr>
+            <td>etcd</td>
+            <td>index.docker.io/rancher/hardened-etcd:v3.5.13-k3s1-build20240528</td>
+            <td><span class="count-badge zero">0</span></td>
+            <td><a href="#">ConfigMap&#8599;</a></td>
+          </tr>
+          <tr>
+            <td>coredns</td>
+            <td>index.docker.io/rancher/hardened-coredns:v1.11.1-build20240422</td>
+            <td><span class="count-badge nonzero">4</span></td>
+            <td><a href="#">ConfigMap&#8599;</a></td>
+          </tr>
+          <tr>
+            <td>calico-node</td>
+            <td>index.docker.io/rancher/hardened-calico:v3.28.0-build20240530</td>
+            <td><span class="count-badge nonzero">9</span></td>
+            <td><a href="#">ConfigMap&#8599;</a></td>
+          </tr>
+          <tr>
+            <td>containerd</td>
+            <td>index.docker.io/rancher/hardened-containerd:v1.7.17-k3s1-build20240612</td>
+            <td><span class="count-badge zero">0</span></td>
+            <td><a href="#">ConfigMap&#8599;</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</body>
+</html>
