@@ -1,5 +1,6 @@
 <script>
 import { WORKLOAD_TYPES } from '@shell/config/types';
+import { isRancherPrime } from '@shell/config/version';
 import Loading from '@shell/components/Loading';
 import { Banner } from '@components/Banner';
 import SortableTable from '@shell/components/SortableTable';
@@ -84,6 +85,19 @@ export default {
   },
 
   computed: {
+    // vexscan is distributed Prime-only (see README "Rancher Prime gating");
+    // isRancherPrime() reads the RancherPrime flag the server already sends
+    // back from /rancherversion (@shell/config/version, populated at app
+    // boot before any page mounts), so this is accurate without the
+    // extension having to call anything itself. This is a UI-level
+    // courtesy/soft gate only - it can't stop someone who obtained the
+    // chart/image directly from applying it against a Community server;
+    // real enforcement has to happen at distribution (private,
+    // entitlement-gated registry), not in shipped extension code.
+    isPrime() {
+      return isRancherPrime();
+    },
+
     summary() {
       return this.report?.status?.summary || {};
     },
@@ -214,9 +228,9 @@ export default {
         </p>
       </div>
       <button
-        v-tooltip="canScanNow ? undefined : t('vexscan.overview.scanNowNoPermission')"
+        v-tooltip="!isPrime ? t('vexscan.overview.primeRequired') : (canScanNow ? undefined : t('vexscan.overview.scanNowNoPermission'))"
         class="btn role-primary"
-        :disabled="!cronJob || scanning || !canScanNow"
+        :disabled="!cronJob || scanning || !canScanNow || !isPrime"
         @click="scanNow"
       >
         <i
@@ -227,6 +241,11 @@ export default {
       </button>
     </header>
 
+    <Banner
+      v-if="!isPrime"
+      color="error"
+      :label="t('vexscan.overview.primeRequired')"
+    />
     <Banner
       v-if="scanError"
       color="error"
@@ -253,7 +272,7 @@ export default {
       :label="truncationMessage"
     />
 
-    <template v-if="report">
+    <template v-if="report && isPrime">
       <div class="meta-row">
         <div class="meta-item">
           <label>{{ t('vexscan.overview.rke2Version') }}</label>

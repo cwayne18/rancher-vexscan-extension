@@ -119,6 +119,35 @@ namespace in its own Rancher Project and use a `context: "project"` variant
 instead. Not yet validated against a live Rancher Prime cluster - see
 "Validation status".
 
+### Rancher Prime gating
+
+vexscan is intended to be Prime-exclusive. Enforcement is layered, from
+cosmetic to real:
+
+1. **UI soft gate (implemented)** - `pages/overview.vue` calls the real
+   `isRancherPrime()` helper from `@shell/config/version` (populated from
+   the server's own `/rancherversion` API response) and shows a blocking
+   banner/disables Scan Now when the connected server isn't Prime. This is
+   a courtesy for anyone who installs the chart against a Community server;
+   it does **not** stop them, since it's just JS shipped to the browser.
+2. **Backend gate (not implemented)** - `scanner/entrypoint.sh` could make
+   the same check server-side and fail the Job/CronJob outright. Harder to
+   bypass than (1), but still just removable source.
+3. **Distribution gate (not implemented, the one that actually matters)** -
+   don't publish the chart/scanner image to a public registry or catalog at
+   all; host both in a SUSE/Rancher support-entitlement-gated registry, the
+   same pattern Rancher Prime's own hardened images already use. Access
+   itself requires an active subscription, regardless of what the shipped
+   code does or doesn't check.
+4. **Bundle into Prime itself (not implemented)** - ship vexscan as a
+   pre-registered extension inside the Rancher Prime server chart/image
+   directly, so a Community Rancher install never has it to install in the
+   first place. Closest to "bundled into Rancher Manager" as originally
+   envisioned.
+
+(1) is implemented in this repo. (2)-(4) are distribution/packaging
+decisions outside a single extension repo's code and aren't done here.
+
 ### Why a CRD status summary + separate ConfigMap, not one big object
 
 `VexScanReport.status` only holds summary severity/bucket counts and a small
