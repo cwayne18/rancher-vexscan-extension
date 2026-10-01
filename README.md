@@ -71,7 +71,9 @@ Two halves, each in this repo:
    - the `VexScanReport` CRD (`vexscanreports.vexscan.cattle.io`)
    - RBAC (`ServiceAccount` + `ClusterRole`/`ClusterRoleBinding` for reading
      node versions and the CRD; a namespaced `Role`/`RoleBinding` for writing
-     the results `ConfigMap`)
+     the results `ConfigMap`) for the **scanner itself**
+   - two Rancher `RoleTemplate`s (`vexscan-view`/`vexscan-operate`) for
+     **end users** - see "End-user RBAC" below
    - a `CronJob` (default: daily) running `scanner/entrypoint.sh` in a small
      image built on top of the real `ghcr.io/cwayne18/vexscan` image
 
@@ -83,8 +85,39 @@ resources (`shell/models/batch.cronjob.js`): it clones the CronJob's
 `spec.jobTemplate` into a new one-shot `Job`, owned by the CronJob, and saves
 it - exactly what you get from Workloads > CronJobs > (kebab) > **Run Now** in
 stock Rancher. `pages/overview.vue` just fetches the `vexscan-scanner`
-CronJob this chart created and calls `cronJob.runNow()`. No extra RBAC, no
-custom Steve action, no new backend endpoint.
+CronJob this chart created and calls `cronJob.runNow()`. No custom Steve
+action or new backend endpoint - but the calling user still needs real
+Kubernetes RBAC to create a `Job`/patch the `CronJob`, same as clicking
+Run Now anywhere else in Rancher. See "End-user RBAC" below for how that's
+granted.
+
+### End-user RBAC
+
+Rancher's own default per-cluster roles (`cluster-owner`/`cluster-member`/
+read-only) don't automatically cover a custom CRD or a chart's own system
+namespace, so without anything extra, only `cluster-owner` (full cluster
+admin) could see a `VexScanReport` or click Scan Now. The chart installs two
+`management.cattle.io/v3` `RoleTemplate`s instead, so a cluster-owner can
+delegate narrower access from **Cluster > Users & Permissions**, the same
+place they'd assign any other Rancher role:
+
+| RoleTemplate       | Grants                                                                 |
+| ------------------ | ----------------------------------------------------------------------|
+| `vexscan-view`     | Read `VexScanReport` status (triage bucket/severity counts, phase) and the full `report.json.gz` ConfigMaps. No scan trigger. |
+| `vexscan-operate`  | Everything in `vexscan-view`, plus create the `Job`/patch the `CronJob` needed for "Scan Now" (composed via `roleTemplateNames: [vexscan-view]`, not duplicated). |
+
+`pages/overview.vue` checks `cluster/canCreate`/`cluster/canUpdate` on the
+Job/CronJob types and disables "Scan Now" with an explanatory tooltip/banner
+for `vexscan-view`-only users, instead of letting them click into a 403.
+
+**Known limitation**: a `context: "cluster"` RoleTemplate compiles down to a
+`ClusterRoleBinding`, so (consistent with how Rancher's own built-in cluster
+roles work) the ConfigMap/Job/CronJob rules above are granted cluster-wide,
+not scoped to just the `cattle-vexscan-system` namespace the chart installs
+into. An admin wanting tighter per-namespace isolation should put that
+namespace in its own Rancher Project and use a `context: "project"` variant
+instead. Not yet validated against a live Rancher Prime cluster - see
+"Validation status".
 
 ### Why a CRD status summary + separate ConfigMap, not one big object
 

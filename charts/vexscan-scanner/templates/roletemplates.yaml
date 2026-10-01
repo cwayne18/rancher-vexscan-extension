@@ -1,0 +1,59 @@
+# End-user (Rancher Prime) roles, distinct from the vexscan-scanner
+# ServiceAccount's own ClusterRole/Role in clusterrole.yaml/role.yaml.
+#
+# RoleTemplate is Rancher's own RBAC CRD (management.cattle.io/v3), not raw
+# Kubernetes RBAC. A `context: "cluster"` RoleTemplate shows up in Rancher
+# Manager's Cluster > Users & Permissions screen so a cluster-owner can
+# assign it to specific users/groups, same as Rancher's built-in
+# "cluster-member"/"cluster-owner" roles. Rancher compiles it into a
+# ClusterRole + ClusterRoleBinding when assigned, so (same as Rancher's own
+# default roles) any rule here - including ones on namespaced resources like
+# ConfigMaps/Jobs - grants cluster-wide access to that resource kind, not
+# just within cattle-vexscan-system. There's no narrower "this one
+# namespace" tier available at the RoleTemplate level; an admin who wants
+# that needs to put cattle-vexscan-system in its own Rancher Project and use
+# a `context: "project"` RoleTemplate instead. Not yet validated against a
+# live Rancher Prime cluster - see README "Validation status".
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata:
+  name: vexscan-view
+displayName: "VEX Scan - View"
+description: >-
+  Read VexScanReport status (triage bucket/severity counts, phase) and the
+  full gzipped vexscan JSON report ConfigMaps. No ability to trigger a scan.
+context: "cluster"
+rules:
+  - apiGroups: ["vexscan.cattle.io"]
+    resources: ["vexscanreports"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["vexscan.cattle.io"]
+    resources: ["vexscanreports/status"]
+    verbs: ["get"]
+  # Full per-image report.json.gz ConfigMaps, written only into
+  # {{ .Values.namespace }} by the scanner's own Role (see role.yaml) -
+  # see the caveat above re: this still being a cluster-wide grant.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata:
+  name: vexscan-operate
+displayName: "VEX Scan - Operator"
+description: >-
+  Everything in "VEX Scan - View", plus permission to trigger an on-demand
+  scan ("Scan Now" in the vexscan Overview page, which clones the
+  vexscan-scanner CronJob's spec.jobTemplate into a new Job).
+context: "cluster"
+# Composes on top of vexscan-view instead of repeating its rules.
+roleTemplateNames:
+  - vexscan-view
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch", "patch", "update"]

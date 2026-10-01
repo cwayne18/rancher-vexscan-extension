@@ -7,6 +7,10 @@ vexscan:
       Deterministic CVE presence/reachability triage for the exact RKE2
       components running on this cluster.
     scanNow: Scan Now
+    scanNowNoPermission: >-
+      You need the "VEX Scan - Operator" role on this cluster to trigger a
+      scan. Ask a cluster owner to grant it from Cluster > Users &
+      Permissions.
     scanQueued: Scan queued - this can take a few minutes depending on image count.
     noReport: No scan report yet. Run a scan to populate this page.
     rke2Version: RKE2 version

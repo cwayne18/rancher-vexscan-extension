@@ -81,6 +81,17 @@ export default {
       return this.report?.status?.lastScanTime;
     },
 
+    // "Scan Now" calls cronJob.runNow(), which creates a batch.job and
+    // patches the batch.cronjob - both require the "VEX Scan - Operator"
+    // RoleTemplate (see charts/vexscan-scanner/templates/roletemplates.yaml).
+    // A "VEX Scan - View"-only user can still see this whole page (the CR
+    // status/ConfigMap reads are a separate, lesser permission), they just
+    // shouldn't get a button that 403s when clicked.
+    canScanNow() {
+      return this.$store.getters['cluster/canCreate'](WORKLOAD_TYPES.JOB)
+        && this.$store.getters['cluster/canUpdate'](WORKLOAD_TYPES.CRON_JOB);
+    },
+
     severityCards() {
       return Object.keys(SEVERITY_COLOR).map((sev) => ({
         key:   sev,
@@ -138,8 +149,9 @@ export default {
         </p>
       </div>
       <button
+        v-tooltip="canScanNow ? undefined : t('vexscan.overview.scanNowNoPermission')"
         class="btn role-primary"
-        :disabled="!cronJob || scanning"
+        :disabled="!cronJob || scanning || !canScanNow"
         @click="scanNow"
       >
         <i
@@ -164,6 +176,11 @@ export default {
       v-else-if="!report"
       color="info"
       :label="t('vexscan.overview.noReport')"
+    />
+    <Banner
+      v-if="cronJob && !canScanNow"
+      color="info"
+      :label="t('vexscan.overview.scanNowNoPermission')"
     />
 
     <template v-if="report">
