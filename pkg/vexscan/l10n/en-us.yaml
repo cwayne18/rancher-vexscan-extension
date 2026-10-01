@@ -45,3 +45,5 @@ vexscan:
       severity: Severity
       verdict: Verdict
       reason: Reason
+      scanTime: Scan time
+      history: Scan history

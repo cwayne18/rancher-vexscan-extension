@@ -91,7 +91,35 @@ spec:
                         type: string
                       findings:
                         type: integer
+                      # Same bucket_of() rules as status.summary above,
+                      # computed per-component instead of cluster-wide.
+                      affected: { type: integer }
+                      vexed: { type: integer }
+                      undetermined: { type: integer }
+                      ruledOut: { type: integer }
                       reportConfigMapRef:
                         type: string
                 message:
                   type: string
+                # Rolling trend of past scans' summary counts, oldest first,
+                # capped at a fixed length by the scanner itself (not the
+                # apiserver) - so this stays small and bounded without
+                # needing a separate CR-per-scan + retention job. Counts
+                # only, no findings/evidence, so size stays trivial however
+                # large a single scan's raw report is.
+                history:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      time: { type: string, format: date-time }
+                      rke2Version: { type: string }
+                      critical: { type: integer }
+                      high: { type: integer }
+                      medium: { type: integer }
+                      low: { type: integer }
+                      unknown: { type: integer }
+                      affected: { type: integer }
+                      vexed: { type: integer }
+                      undetermined: { type: integer }
+                      ruledOut: { type: integer }

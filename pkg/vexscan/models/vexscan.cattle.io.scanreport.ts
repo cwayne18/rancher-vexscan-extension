@@ -18,6 +18,11 @@ interface ScanSummary {
   ruledOut?: number;
 }
 
+interface ScanHistoryEntry extends ScanSummary {
+  time: string;
+  rke2Version?: string;
+}
+
 interface ComponentResult {
   component: string;
   image: string;
@@ -50,6 +55,10 @@ export default class VexScanReport extends SteveModel {
     summary?: ScanSummary;
     componentResults?: ComponentResult[];
     message?: string;
+    // Rolling trend of past scans' summary counts (oldest first), capped to
+    // a fixed length by scanner/entrypoint.sh itself - not a CR-per-scan, so
+    // this stays bounded with no retention job to maintain.
+    history?: ScanHistoryEntry[];
   };
 
   get rke2Version(): string {
@@ -62,6 +71,10 @@ export default class VexScanReport extends SteveModel {
 
   get componentResults(): ComponentResult[] {
     return this.status?.componentResults || [];
+  }
+
+  get history(): ScanHistoryEntry[] {
+    return this.status?.history || [];
   }
 
   get lastScanTime(): string | undefined {

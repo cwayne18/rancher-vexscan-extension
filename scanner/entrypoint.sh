@@ -175,13 +175,32 @@ kubectl create configmap "${REPORT_NAME}-report" -n "$REPORT_NAMESPACE" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Lightweight scan-history trend: summary counts only (no findings/evidence),
+# appended to whatever history the CR already carries and capped to the last
+# N entries here in the script - not left to the apiserver/CRD, since a JSON
+# merge patch replaces the whole array anyway. This avoids a CR-per-scan +
+# retention-job design entirely: one object, bounded size, no pruning CronJob
+# to write/maintain.
+HISTORY_LIMIT="${HISTORY_LIMIT:-30}"
+PREV_HISTORY_JSON="$(kubectl get vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" \
+  -o jsonpath='{.status.history}' 2>/dev/null || true)"
+[[ -z "$PREV_HISTORY_JSON" ]] && PREV_HISTORY_JSON="[]"
+
+HISTORY_JSON="$(jq -c --argjson prev "$PREV_HISTORY_JSON" --argjson cap "$HISTORY_LIMIT" \
+  --arg time "$NOW" --arg rke2Version "$KUBELET_VERSION" --argjson summary "$SUMMARY_JSON" '
+  ($prev + [($summary + { time: $time, rke2Version: $rke2Version })]) as $all
+  | $all[-$cap:]
+')"
+
 STATUS_PATCH="$(jq -n \
   --arg rke2Version "$KUBELET_VERSION" \
   --argjson summary "$SUMMARY_JSON" \
   --argjson componentResults "$COMPONENT_RESULTS_JSON" \
   --arg lastScanTime "$NOW" \
   --arg message "$TRUNCATION_NOTE" \
-  '{status: {phase: "Ready", lastScanTime: $lastScanTime, summary: $summary, componentResults: $componentResults, message: $message}}')"
+  --argjson history "$HISTORY_JSON" \
+  '{status: {phase: "Ready", lastScanTime: $lastScanTime, summary: $summary, componentResults: $componentResults, message: $message, history: $history}}')"
 
 echo "==> patching VexScanReport/$REPORT_NAME status"
 kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge --subresource=status \

@@ -135,7 +135,8 @@ export default {
       :rows="componentResults"
       :headers="headers"
       key-field="component"
-      :search="false"
+      :paging="true"
+      :rows-per-page="10"
       :table-actions="false"
       :row-actions="false"
     />

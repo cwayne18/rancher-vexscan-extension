@@ -152,6 +152,27 @@ export default {
         },
       ];
     },
+
+    // Lightweight trend: just the summary counts from each past scan (no
+    // findings/evidence), already capped to a fixed length by
+    // scanner/entrypoint.sh - shown newest-first so the latest scan (which
+    // duplicates the cards above) is still a useful sanity-check anchor.
+    historyRows() {
+      return [...(this.report?.status?.history || [])].reverse();
+    },
+
+    historyHeaders() {
+      return [
+        {
+          name: 'time', labelKey: 'vexscan.overview.table.scanTime', value: 'time', formatter: 'LiveDate', sort: 'time',
+        },
+        { name: 'rke2Version', labelKey: 'vexscan.overview.rke2Version', value: 'rke2Version' },
+        { name: 'affected', labelKey: 'vexscan.overview.bucket.affected', value: 'affected' },
+        { name: 'vexed', labelKey: 'vexscan.overview.bucket.vexed', value: 'vexed' },
+        { name: 'undetermined', labelKey: 'vexscan.overview.bucket.undetermined', value: 'undetermined' },
+        { name: 'ruledOut', labelKey: 'vexscan.overview.bucket.ruledOut', value: 'ruledOut' },
+      ];
+    },
   },
 
   methods: {
@@ -299,7 +320,22 @@ export default {
         :rows="componentResults"
         :headers="componentHeaders"
         key-field="component"
-        :search="false"
+        :paging="true"
+        :rows-per-page="10"
+        :table-actions="false"
+        :row-actions="false"
+      />
+
+      <h3 v-if="historyRows.length">
+        {{ t('vexscan.overview.table.history') }}
+      </h3>
+      <SortableTable
+        v-if="historyRows.length"
+        :rows="historyRows"
+        :headers="historyHeaders"
+        key-field="time"
+        :paging="true"
+        :rows-per-page="10"
         :table-actions="false"
         :row-actions="false"
       />
