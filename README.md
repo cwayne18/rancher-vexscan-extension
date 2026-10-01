@@ -90,11 +90,20 @@ custom Steve action, no new backend endpoint.
 
 `VexScanReport.status` only holds summary severity/bucket counts and a small
 `componentResults[]` list (one row per scanned image: name, finding count, and
-a pointer to a ConfigMap). The full `vexscan --format json` output - which can
-be substantial across a whole RKE2 image manifest - is written to that
-ConfigMap instead of inline in the CR, so a big cluster doesn't risk tripping
-etcd's per-object size limit. This mirrors the summary/detail split used by
-tools like the Trivy Operator.
+a pointer to a ConfigMap). The full `vexscan --format json` output is written
+to that ConfigMap instead of inline in the CR, so a big cluster doesn't risk
+tripping etcd's per-object size limit. This mirrors the summary/detail split
+used by tools like the Trivy Operator.
+
+Validated against a real scan: 3 RKE2 component images alone produced a
+3.4MB raw JSON report, far past the 1MiB hard limit the apiserver enforces on
+ConfigMaps/Secrets. `entrypoint.sh` therefore drops `ruledOut` findings
+(already fully captured in `status.summary`'s counts) before persisting, then
+gzips the result (JSON compresses very well here - about 27x on real data).
+If it's still over the limit, it falls back further to persisting only the
+actionable `affected`/`vexed` findings and records that truncation in
+`status.message`; the summary counts themselves are never truncated.
+
 
 ## Repo layout
 
@@ -141,6 +150,34 @@ yarn build-pkg vexscan
 `mockup/dashboard.html` is a static, self-contained preview of the Overview
 page's look - open it directly in a browser, no build step or cluster
 required.
+
+## Validation status
+
+This repo is a scaffold/mockup, not yet run end-to-end against a real
+cluster. What's been validated for real vs. what still needs one:
+
+**Validated against real data** (built the actual `vexscan` binary and
+`skopeo` from source, ran `vexscan --images-from` against a real `rke2`
+GitHub release manifest):
+- The RKE2 release manifest URL/encoding and manifest format.
+- `vexscan` requires `skopeo` on `PATH` and a `/etc/containers/policy.json`
+  trust policy to pull images - both were missing from the original
+  `scanner/Dockerfile` and are now fixed.
+- The real batch JSON schema (`schema_version`/`mode`/`targets`/`results[]`,
+  uppercase `severity`, finding `status` vocabulary, `vex` sub-object shape).
+- `entrypoint.sh`'s `jq` summary/bucket logic, run against real report JSON -
+  counts reconcile exactly against the raw finding counts.
+- The raw-report-vs-ConfigMap-size-limit problem described above, and the
+  filter+gzip (+fallback truncation) fix, measured against real output.
+
+**Still needs a real cluster** (no docker/kind/kubectl available in the
+sandbox this was built in): CRD admission/schema validation, `--subresource
+status` patch semantics, RBAC enforcement for the scanner's ServiceAccount
+vs. end users, CronJob/Job scheduling and `runNow()` behavior, and the UI's
+`headers()`/Steve API field shapes (never run via `yarn dev` against a live
+Rancher). If you have access to a kind/k3d cluster or a real RKE2 node, the
+fastest path to closing that gap is `helm install` this chart and watching
+the first `Job` it creates.
 
 ## Relationship to the vexscan CLI and contrib/ scripts
 

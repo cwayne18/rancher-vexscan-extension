@@ -96,9 +96,43 @@ COMPONENT_RESULTS_JSON="$(jq -c '
   }]
 ' --arg cmName "${REPORT_NAME}-report" "$WORKDIR/report.json")"
 
-echo "==> writing full report ConfigMap ${REPORT_NAME}-report"
+# ConfigMaps are hard-capped at 1MiB by the apiserver, and a real scan's raw
+# JSON easily exceeds that (confirmed: 3 RKE2 images alone produced a 3.4MB
+# report). ruledOut findings (not_present/not_in_execute_path) are already
+# fully captured in the summary counts above and aren't actionable, so drop
+# them from the persisted payload first; gzip compresses the remainder
+# heavily (JSON is highly repetitive - confirmed ~27x on real data). If it's
+# still too big, fall back to dropping undetermined findings too, keeping
+# only the actionable affected/vexed buckets, and note the truncation in
+# status.message so it's visible in the UI rather than silently lossy.
+CONFIGMAP_SIZE_LIMIT=900000 # stay under the 1MiB apiserver cap with margin
+TRUNCATION_NOTE=""
+
+jq -c '{
+  schema_version, mode,
+  results: [.results[] | {
+    target, mode, module,
+    findings: [.findings[] | select(.status != "not_present" and .status != "not_in_execute_path")]
+  }]
+}' "$WORKDIR/report.json" > "$WORKDIR/report.filtered.json"
+gzip -c "$WORKDIR/report.filtered.json" > "$WORKDIR/report.json.gz"
+
+if [[ "$(stat -c%s "$WORKDIR/report.json.gz" 2>/dev/null || stat -f%z "$WORKDIR/report.json.gz")" -gt "$CONFIGMAP_SIZE_LIMIT" ]]; then
+  echo "==> filtered report still exceeds ${CONFIGMAP_SIZE_LIMIT} bytes compressed, dropping undetermined findings too"
+  jq -c '{
+    schema_version, mode,
+    results: [.results[] | {
+      target, mode, module,
+      findings: [.findings[] | select(.status == "linked" or .status == "reachable")]
+    }]
+  }' "$WORKDIR/report.json" > "$WORKDIR/report.filtered.json"
+  gzip -c "$WORKDIR/report.filtered.json" > "$WORKDIR/report.json.gz"
+  TRUNCATION_NOTE="persisted report was truncated to affected/vexed findings only due to ConfigMap size limits; counts in summary remain accurate"
+fi
+
+echo "==> writing report ConfigMap ${REPORT_NAME}-report ($(wc -c < "$WORKDIR/report.json.gz") bytes gzipped)"
 kubectl create configmap "${REPORT_NAME}-report" -n "$REPORT_NAMESPACE" \
-  --from-file=report.json="$WORKDIR/report.json" \
+  --from-file=report.json.gz="$WORKDIR/report.json.gz" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -107,7 +141,8 @@ STATUS_PATCH="$(jq -n \
   --argjson summary "$SUMMARY_JSON" \
   --argjson componentResults "$COMPONENT_RESULTS_JSON" \
   --arg lastScanTime "$NOW" \
-  '{status: {phase: "Ready", lastScanTime: $lastScanTime, summary: $summary, componentResults: $componentResults, message: ""}}')"
+  --arg message "$TRUNCATION_NOTE" \
+  '{status: {phase: "Ready", lastScanTime: $lastScanTime, summary: $summary, componentResults: $componentResults, message: $message}}')"
 
 echo "==> patching VexScanReport/$REPORT_NAME status"
 kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge --subresource=status \
