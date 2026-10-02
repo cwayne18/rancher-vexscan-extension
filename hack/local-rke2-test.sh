@@ -13,12 +13,17 @@
 #   VM_NAME      Multipass VM name (default: vexscan-rke2)
 #   VEXSCAN_DIR  path to a local checkout of cwayne18/vexscan
 #                (default: ../vexscan, cloned if missing)
+#   FRESH_VM     set to 1 to delete and recreate the VM first - use this if
+#                a previous run left RKE2 in a half-started state (stale
+#                etcd data / orphaned containerd-shim processes are the
+#                most common cause of a confusing second-run failure)
 set -euo pipefail
 
 VM_NAME="${VM_NAME:-vexscan-rke2}"
 VEXSCAN_DIR="${VEXSCAN_DIR:-../vexscan}"
 NAMESPACE="cattle-vexscan-system"
 SCANNER_IMAGE="localhost/vexscan-scanner:dev"
+FRESH_VM="${FRESH_VM:-0}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -26,14 +31,24 @@ cd "$REPO_ROOT"
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing required tool: $1" >&2; exit 1; }; }
 for t in multipass docker helm kubectl go git; do need "$t"; done
 
+if [[ "$FRESH_VM" == "1" ]]; then
+  echo "==> FRESH_VM=1: deleting any existing $VM_NAME first"
+  multipass delete "$VM_NAME" --purge 2>/dev/null || true
+fi
+
 echo "==> 1/7 launching RKE2 VM ($VM_NAME)"
 if ! multipass info "$VM_NAME" >/dev/null 2>&1; then
   multipass launch --name "$VM_NAME" --cpus 2 --memory 4G --disk 20G 22.04
 fi
+# `systemctl enable --now`'s own exit code is not treated as fatal here: on a
+# VM reused from a previous run, startup can legitimately take a while to
+# reconcile existing etcd state and still succeed - step 2 below is the
+# actual source of truth for readiness, polling via kubectl rather than
+# trusting systemd's synchronous start result.
 multipass exec "$VM_NAME" -- bash -c '
   if ! systemctl is-active --quiet rke2-server 2>/dev/null; then
     curl -sfL https://get.rke2.io | sudo sh -
-    sudo systemctl enable --now rke2-server
+    sudo systemctl enable --now rke2-server || echo "systemctl start reported failure - checking actual readiness next" >&2
   fi
 '
 
