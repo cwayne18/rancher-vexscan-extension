@@ -218,6 +218,23 @@ the Extensions catalog:
 yarn build-pkg vexscan
 ```
 
+## Trying it end-to-end against a real RKE2 cluster
+
+`hack/local-rke2-test.sh` spins up a single-node RKE2 cluster in a Multipass
+VM, builds `vexscan-scanner` locally (no GHCR dependency), loads it into the
+VM's containerd, installs the chart, and runs a manual scan - useful for
+exercising the real scanner + `VexScanReport` CR without a cloud cluster.
+Requires Docker, Multipass, Helm, kubectl and Go on your machine:
+
+```sh
+./hack/local-rke2-test.sh
+```
+
+See the script header for env var overrides and cleanup instructions. Note
+that Rancher's own embedded "local" management cluster is k3s, not RKE2, so
+it can't be scanned itself - this script's VM (or any other real downstream
+RKE2 cluster) is what the scanner actually needs.
+
 ## Trying the mockup
 
 `mockup/dashboard.html` is a static, self-contained preview of the Overview

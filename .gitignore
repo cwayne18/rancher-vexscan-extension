@@ -71,3 +71,6 @@ Thumbs.db
 
 # Locally built assets (extensions)
 dist-pkg
+
+# hack/local-rke2-test.sh output
+/rke2.yaml
