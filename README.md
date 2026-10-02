@@ -72,10 +72,16 @@ Two halves, each in this repo:
    - RBAC (`ServiceAccount` + `ClusterRole`/`ClusterRoleBinding` for reading
      node versions and the CRD; a namespaced `Role`/`RoleBinding` for writing
      the results `ConfigMap`) for the **scanner itself**
-   - two Rancher `RoleTemplate`s (`vexscan-view`/`vexscan-operate`) for
-     **end users** - see "End-user RBAC" below
    - a `CronJob` (default: daily) running `scanner/entrypoint.sh` in a small
      image built on top of the real `ghcr.io/cwayne18/vexscan` image
+
+   Install this on **each downstream RKE2 cluster** you want scanned.
+
+3. **`rancher/roletemplates.yaml`** - two Rancher `RoleTemplate`s
+   (`vexscan-view`/`vexscan-operate`) for **end users** - see "End-user
+   RBAC" below. Apply this **once, to the Rancher server's own management
+   cluster** (not to any downstream cluster - `RoleTemplate` is a
+   Rancher management-plane CRD that only exists there).
 
 ### "Scan Now" doesn't need a custom backend action
 
@@ -96,10 +102,26 @@ granted.
 Rancher's own default per-cluster roles (`cluster-owner`/`cluster-member`/
 read-only) don't automatically cover a custom CRD or a chart's own system
 namespace, so without anything extra, only `cluster-owner` (full cluster
-admin) could see a `VexScanReport` or click Scan Now. The chart installs two
-`management.cattle.io/v3` `RoleTemplate`s instead, so a cluster-owner can
-delegate narrower access from **Cluster > Users & Permissions**, the same
-place they'd assign any other Rancher role:
+admin) could see a `VexScanReport` or click Scan Now. `rancher/roletemplates.yaml`
+defines two `management.cattle.io/v3` `RoleTemplate`s instead, so a
+cluster-owner can delegate narrower access from **Cluster > Users &
+Permissions**, the same place they'd assign any other Rancher role.
+
+**Apply that manifest once to the Rancher server's own management cluster**
+(commonly called `local` - the cluster Rancher Manager itself runs on), e.g.:
+
+```sh
+kubectl --context <rancher-server-context> apply -f rancher/roletemplates.yaml
+```
+
+Not to each downstream cluster - `RoleTemplate` only exists as an API type
+on the cluster running Rancher Manager (confirmed live: installing it via
+the `vexscan-scanner` chart on a downstream cluster fails with
+`no matches for kind "RoleTemplate" in version "management.cattle.io/v3"`,
+since that CRD/API group simply isn't there). Once applied to the Rancher
+server, a cluster-owner on any Rancher-managed downstream cluster can assign
+these roles - a `RoleTemplate` only needs to exist once to be assignable
+everywhere Rancher manages.
 
 | RoleTemplate       | Grants                                                                 |
 | ------------------ | ----------------------------------------------------------------------|
@@ -194,9 +216,15 @@ charts/vexscan-scanner/   Helm chart for the in-cluster backend
   crds/                     VexScanReport CRD
   templates/                namespace, RBAC, CronJob
 
+rancher/                  Manifests for Rancher's own management cluster
+  roletemplates.yaml        end-user RoleTemplates (apply once, to Rancher
+                            server - see "End-user RBAC")
+
 scanner/                  Scanner container
   entrypoint.sh             version resolution -> manifest download -> scan -> CR/ConfigMap write
   Dockerfile                built FROM ghcr.io/cwayne18/vexscan
+
+hack/                     Dev-only scripts (local RKE2 test cluster, etc.)
 
 mockup/                   Static, self-contained HTML mockup of the Overview
                           page (no Rancher/K8s needed to view it)
