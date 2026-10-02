@@ -109,7 +109,9 @@ DOCKERFILE
 echo "==> 6/7 loading image into the VM's containerd"
 docker save "$SCANNER_IMAGE" -o /tmp/vexscan-scanner.tar
 multipass transfer /tmp/vexscan-scanner.tar "$VM_NAME":/tmp/vexscan-scanner.tar
-multipass exec "$VM_NAME" -- sudo /var/lib/rancher/rke2/bin/ctr -n k8s.io images import /tmp/vexscan-scanner.tar
+multipass exec "$VM_NAME" -- sudo /var/lib/rancher/rke2/bin/ctr \
+  --address /run/k3s/containerd/containerd.sock \
+  -n k8s.io images import /tmp/vexscan-scanner.tar
 rm -f /tmp/vexscan-scanner.tar
 
 echo "==> 7/7 installing vexscan-scanner and running a manual scan"
