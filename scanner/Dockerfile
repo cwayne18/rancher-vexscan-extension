@@ -26,7 +26,12 @@ COPY --from=vexscan /usr/local/bin/vexscan /usr/local/bin/vexscan
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-RUN addgroup -S vexscan && adduser -S -G vexscan vexscan
-USER vexscan
+# Numeric UID, not just a named user: Kubernetes' runAsNonRoot check can't
+# resolve a named user from the image's /etc/passwd, so a USER directive
+# with just a name fails pods with "image has non-numeric user (vexscan),
+# cannot verify user is non-root" even though the user genuinely isn't root
+# (confirmed live against a real cluster).
+RUN addgroup -S -g 1000 vexscan && adduser -S -G vexscan -u 1000 vexscan
+USER 1000
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

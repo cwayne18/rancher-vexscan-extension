@@ -108,8 +108,8 @@ RUN mkdir -p /etc/containers \
 COPY vexscan.local /usr/local/bin/vexscan
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/vexscan /usr/local/bin/entrypoint.sh
-RUN addgroup -S vexscan && adduser -S -G vexscan vexscan
-USER vexscan
+RUN addgroup -S -g 1000 vexscan && adduser -S -G vexscan -u 1000 vexscan
+USER 1000
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 DOCKERFILE
 

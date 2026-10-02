@@ -22,6 +22,12 @@ spec:
           restartPolicy: Never
           securityContext:
             runAsNonRoot: true
+            # Explicit numeric UID so this doesn't depend on the image's USER
+            # directive resolving to a numeric ID (confirmed live: a named
+            # non-root user alone makes kubelet refuse to start the pod with
+            # "image has non-numeric user, cannot verify user is non-root").
+            # Must match the UID scanner/Dockerfile's USER actually runs as.
+            runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
           containers:
