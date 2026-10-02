@@ -11,6 +11,11 @@
 #
 # Env overrides:
 #   VM_NAME      Multipass VM name (default: vexscan-rke2)
+#   VM_CPUS      Multipass VM CPU count (default: 4)
+#   VM_MEMORY    Multipass VM memory (default: 8G - RKE2's own docs list 4G
+#                as bare minimum; 8G leaves headroom for the image import +
+#                scan Job on top of the control plane, and was the likely
+#                cause of a "ctr: EOF" failure under 4G)
 #   VEXSCAN_DIR  path to a local checkout of cwayne18/vexscan
 #                (default: ../vexscan, cloned if missing)
 #   FRESH_VM     set to 1 to delete and recreate the VM first - use this if
@@ -20,6 +25,8 @@
 set -euo pipefail
 
 VM_NAME="${VM_NAME:-vexscan-rke2}"
+VM_CPUS="${VM_CPUS:-4}"
+VM_MEMORY="${VM_MEMORY:-8G}"
 VEXSCAN_DIR="${VEXSCAN_DIR:-../vexscan}"
 NAMESPACE="cattle-vexscan-system"
 SCANNER_IMAGE="localhost/vexscan-scanner:dev"
@@ -36,9 +43,9 @@ if [[ "$FRESH_VM" == "1" ]]; then
   multipass delete "$VM_NAME" --purge 2>/dev/null || true
 fi
 
-echo "==> 1/7 launching RKE2 VM ($VM_NAME)"
+echo "==> 1/7 launching RKE2 VM ($VM_NAME: $VM_CPUS cpus, $VM_MEMORY mem)"
 if ! multipass info "$VM_NAME" >/dev/null 2>&1; then
-  multipass launch --name "$VM_NAME" --cpus 2 --memory 4G --disk 20G 22.04
+  multipass launch --name "$VM_NAME" --cpus "$VM_CPUS" --memory "$VM_MEMORY" --disk 20G 22.04
 fi
 # `systemctl enable --now`'s own exit code is not treated as fatal here: on a
 # VM reused from a previous run, startup can legitimately take a while to
@@ -109,9 +116,23 @@ DOCKERFILE
 echo "==> 6/7 loading image into the VM's containerd"
 docker save "$SCANNER_IMAGE" -o /tmp/vexscan-scanner.tar
 multipass transfer /tmp/vexscan-scanner.tar "$VM_NAME":/tmp/vexscan-scanner.tar
-multipass exec "$VM_NAME" -- sudo /var/lib/rancher/rke2/bin/ctr \
-  --address /run/k3s/containerd/containerd.sock \
-  -n k8s.io images import /tmp/vexscan-scanner.tar
+multipass exec "$VM_NAME" -- bash -c 'echo "    VM disk/memory headroom before import:"; df -h / | sed "s/^/    /"; free -h | sed "s/^/    /"'
+IMPORT_OK=0
+for attempt in 1 2 3; do
+  if multipass exec "$VM_NAME" -- sudo /var/lib/rancher/rke2/bin/ctr \
+      --address /run/k3s/containerd/containerd.sock \
+      -n k8s.io images import /tmp/vexscan-scanner.tar; then
+    IMPORT_OK=1
+    break
+  fi
+  echo "    import attempt $attempt failed, retrying..." >&2
+  sleep 5
+done
+if [[ "$IMPORT_OK" != "1" ]]; then
+  echo "image import failed after 3 attempts - checking for OOM kills:" >&2
+  multipass exec "$VM_NAME" -- sudo dmesg 2>/dev/null | grep -i "killed process\|out of memory" | tail -20 | sed "s/^/    /" >&2 || true
+  exit 1
+fi
 rm -f /tmp/vexscan-scanner.tar
 
 echo "==> 7/7 installing vexscan-scanner and running a manual scan"
