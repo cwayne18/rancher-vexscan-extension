@@ -144,8 +144,14 @@ helm upgrade --install vexscan-scanner "$REPO_ROOT/charts/vexscan-scanner" \
 
 kubectl -n "$NAMESPACE" delete job vexscan-manual-test --ignore-not-found
 kubectl -n "$NAMESPACE" create job vexscan-manual-test --from=cronjob/vexscan-scanner
-kubectl -n "$NAMESPACE" wait --for=condition=complete job/vexscan-manual-test --timeout=300s \
-  || kubectl -n "$NAMESPACE" logs job/vexscan-manual-test
+if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/vexscan-manual-test --timeout=300s; then
+  echo "scan job didn't complete - pod status:" >&2
+  kubectl -n "$NAMESPACE" get pods -l job-name=vexscan-manual-test >&2
+  echo "pod describe (check Events/Reason for the real cause):" >&2
+  kubectl -n "$NAMESPACE" describe pods -l job-name=vexscan-manual-test >&2
+  kubectl -n "$NAMESPACE" logs job/vexscan-manual-test || true
+  exit 1
+fi
 kubectl -n "$NAMESPACE" get vexscanreport cluster-scan -o yaml
 
 cat <<EOF
