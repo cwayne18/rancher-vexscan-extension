@@ -37,15 +37,22 @@ multipass exec "$VM_NAME" -- bash -c '
   fi
 '
 
-echo "==> 2/7 waiting for the node to report Ready"
+echo "==> 2/7 waiting for the node to report Ready (can take several minutes on first boot)"
 multipass exec "$VM_NAME" -- bash -c '
-  export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-  export PATH="/var/lib/rancher/rke2/bin:$PATH"
-  for i in $(seq 1 60); do
-    sudo kubectl get nodes 2>/dev/null | grep -q " Ready" && exit 0
+  KCTL="sudo /var/lib/rancher/rke2/bin/kubectl --kubeconfig=/etc/rancher/rke2/rke2.yaml"
+  # NOTE: sudo does not inherit KUBECONFIG/PATH from this shell, so the
+  # kubeconfig and binary path must be passed explicitly on every invocation.
+  for i in $(seq 1 180); do
+    $KCTL get nodes 2>/dev/null | grep -q " Ready" && exit 0
+    if (( i % 6 == 0 )); then
+      echo "    still waiting ($((i * 5))s elapsed)..." >&2
+      $KCTL get nodes 2>&1 | sed "s/^/    /" >&2 || true
+    fi
     sleep 5
   done
-  echo "node never became Ready" >&2
+  echo "node never became Ready - last node state and rke2-server logs:" >&2
+  $KCTL get nodes -o wide 2>&1 | sed "s/^/    /" >&2 || true
+  sudo journalctl -u rke2-server --no-pager -n 80 2>&1 | sed "s/^/    /" >&2 || true
   exit 1
 '
 
