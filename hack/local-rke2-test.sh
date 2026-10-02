@@ -90,7 +90,12 @@ echo "==> 4/7 building vexscan binary locally"
 if [[ ! -d "$VEXSCAN_DIR" ]]; then
   git clone https://github.com/cwayne18/vexscan "$VEXSCAN_DIR"
 fi
-(cd "$VEXSCAN_DIR" && go build -o vexscan .)
+# GOOS=linux always: this binary gets COPY'd straight into the (Linux)
+# scanner image below, not run on this Mac - without it, go build produces
+# a macOS binary and the container fails with "cannot execute binary file:
+# Exec format error" (confirmed live). GOARCH matches this host's arch,
+# since Docker Desktop builds images natively for the host CPU arch.
+(cd "$VEXSCAN_DIR" && GOOS=linux GOARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" go build -o vexscan .)
 
 echo "==> 5/7 building scanner image (bypasses ghcr.io/cwayne18/vexscan base image -"
 echo "       uses the binary just built above instead, so this works even before"
