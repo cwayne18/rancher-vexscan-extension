@@ -220,6 +220,17 @@ if ! jq -e . >/dev/null 2>&1 <<<"$PREV_HISTORY_JSON"; then
   PREV_HISTORY_JSON="[]"
 fi
 
+# TEMPORARY DEBUG - remove once the real "invalid JSON text passed to
+# --argjson" culprit is identified. Confirmed PREV_HISTORY_JSON isn't it
+# (falls back to "[]" and still errors downstream), so check every
+# --argjson value used from here on and print whichever one is bad.
+for _debug_name in SUMMARY_JSON COMPONENT_RESULTS_JSON PREV_HISTORY_JSON HISTORY_LIMIT; do
+  _debug_val="${!_debug_name}"
+  if ! jq -e . >/dev/null 2>&1 <<<"$_debug_val"; then
+    echo "DEBUG: $_debug_name is not valid JSON (length ${#_debug_val}): [${_debug_val:0:500}]" >&2
+  fi
+done
+
 HISTORY_JSON="$(jq -c --argjson prev "$PREV_HISTORY_JSON" --argjson cap "$HISTORY_LIMIT" \
   --arg time "$NOW" --arg rke2Version "$KUBELET_VERSION" --argjson summary "$SUMMARY_JSON" '
   ($prev + [($summary + { time: $time, rke2Version: $rke2Version })]) as $all
