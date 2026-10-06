@@ -4,8 +4,12 @@
 # 1. Reads the exact RKE2 build this cluster's node(s) report (kubelet
 #    version == RKE2's own release tag, e.g. v1.30.4+rke2r1).
 # 2. Downloads that exact release's image manifest from the rke2 GitHub
-#    release (rke2-images-all.linux-<arch>.txt), so the scan covers exactly
-#    the images this RKE2 build actually ships - never a generic/latest list.
+#    release (rke2-images.linux-<arch>.txt - the default-install image set,
+#    NOT rke2-images-all, which is the union of every optional CNI/cloud-
+#    provider add-on across every possible config and would pull in images
+#    this cluster never actually runs, e.g. vSphere/AWS/Azure CSI drivers),
+#    so the scan covers exactly the images this RKE2 build actually ships -
+#    never a generic/latest or kitchen-sink list.
 # 3. Runs vexscan over that manifest and writes the full JSON to a
 #    ConfigMap, then patches the VexScanReport CR's status with a small
 #    summary (so the CR itself stays well under etcd's per-object limit).
@@ -36,7 +40,7 @@ esac
 
 # GitHub release asset URLs url-encode "+" as %2B in the release tag.
 ENCODED_TAG="${KUBELET_VERSION//+/%2B}"
-MANIFEST_URL="https://github.com/rancher/rke2/releases/download/${ENCODED_TAG}/rke2-images-all.linux-${RKE2_ARCH}.txt"
+MANIFEST_URL="https://github.com/rancher/rke2/releases/download/${ENCODED_TAG}/rke2-images.linux-${RKE2_ARCH}.txt"
 
 echo "==> RKE2 version: $KUBELET_VERSION ($RKE2_ARCH)"
 echo "==> downloading image manifest: $MANIFEST_URL"

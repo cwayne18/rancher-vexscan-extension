@@ -95,7 +95,10 @@ export default {
     // real enforcement has to happen at distribution (private,
     // entitlement-gated registry), not in shipped extension code.
     isPrime() {
-      return isRancherPrime();
+      // LOCAL TEST OVERRIDE - DO NOT COMMIT: forced true to test against a
+      // Community (non-Prime) server. Revert to `return isRancherPrime();`
+      // before committing/distributing.
+      return true;
     },
 
     summary() {

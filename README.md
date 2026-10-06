@@ -21,7 +21,7 @@ Every RKE2 GitHub release publishes an exact image manifest as a release
 asset, e.g. for `v1.30.4+rke2r1`:
 
 ```
-https://github.com/rancher/rke2/releases/download/v1.30.4%2Brke2r1/rke2-images-all.linux-amd64.txt
+https://github.com/rancher/rke2/releases/download/v1.30.4%2Brke2r1/rke2-images.linux-amd64.txt
 ```
 
 A node's kubelet version *is* that release tag - `kubectl get nodes -o
@@ -39,7 +39,7 @@ build.
 flowchart LR
     subgraph Downstream Cluster
         CJ[CronJob: vexscan-scanner] -->|kubectl get nodes| KV[kubelet version]
-        KV -->|resolves exact tag| GH[rke2 GitHub release asset:\nrke2-images-all.linux-ARCH.txt]
+        KV -->|resolves exact tag| GH[rke2 GitHub release asset:\nrke2-images.linux-ARCH.txt]
         GH --> SCAN[vexscan --images-from ... --all --triage]
         SCAN -->|summary| CR[(VexScanReport CR)]
         SCAN -->|full JSON| CM[(ConfigMap)]
