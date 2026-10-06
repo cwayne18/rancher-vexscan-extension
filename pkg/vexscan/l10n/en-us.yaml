@@ -17,6 +17,7 @@ vexscan:
       Prime subscription to use it.
     scanQueued: Scan queued - this can take a few minutes depending on image count.
     noReport: No scan report yet. Run a scan to populate this page.
+    scanFailed: 'Last scan failed: %{message}'
     rke2Version: RKE2 version
     lastScan: Last scan
     bucketHeading: Triage verdict

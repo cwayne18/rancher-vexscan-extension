@@ -117,8 +117,20 @@ export default {
       return this.report?.status?.lastScanTime;
     },
 
+    phase() {
+      return this.report?.status?.phase;
+    },
+
+    // entrypoint.sh writes the same status.message field for both a
+    // successful-but-truncated report (see cronjob's degrade-in-stages
+    // comment) and a failed scan's error tail - split here so each gets its
+    // own banner with accurate wording/color instead of one generic one.
+    failureMessage() {
+      return this.phase === 'Failed' ? (this.report?.status?.message || '') : '';
+    },
+
     truncationMessage() {
-      return this.report?.status?.message || '';
+      return this.phase === 'Failed' ? '' : (this.report?.status?.message || '');
     },
 
     // "Scan Now" calls cronJob.runNow(), which creates a batch.job and
@@ -268,6 +280,11 @@ export default {
       v-if="cronJob && !canScanNow"
       color="info"
       :label="t('vexscan.overview.scanNowNoPermission')"
+    />
+    <Banner
+      v-if="phase === 'Failed'"
+      color="error"
+      :label="t('vexscan.overview.scanFailed', { message: failureMessage })"
     />
     <Banner
       v-if="truncationMessage"

@@ -64,8 +64,22 @@ kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge -
   -p '{"status":{"phase":"Scanning"}}' || true
 
 echo "==> running vexscan"
-vexscan --images-from "$WORKDIR/images.txt" --all --triage --quiet \
-  --format json --out "$WORKDIR/report.json"
+# vexscan exits non-zero whenever any ecosystem/image fails to complete,
+# even without --fail-on (exit 1 means "the scan did not complete" by
+# design - see vexscan's own failon.go). Under `set -e` that would
+# otherwise kill this script right here, leaving the CR stuck at
+# phase=Scanning forever with no record of what happened. Capture the
+# failure instead, mark the CR Failed with vexscan's own stderr as the
+# message, and exit - still non-zero, so the Job/CronJob correctly shows
+# as failed too.
+if ! vexscan --images-from "$WORKDIR/images.txt" --all --triage --quiet \
+    --format json --out "$WORKDIR/report.json" 2>"$WORKDIR/vexscan.stderr"; then
+  cat "$WORKDIR/vexscan.stderr" >&2
+  VEXSCAN_ERR="$(tail -c 1000 "$WORKDIR/vexscan.stderr" | jq -Rs .)"
+  kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge \
+    --subresource=status -p "{\"status\":{\"phase\":\"Failed\",\"message\":$VEXSCAN_ERR}}" || true
+  exit 1
+fi
 
 echo "==> summarizing report"
 # Severity buckets: vexscan's own --severity values.
