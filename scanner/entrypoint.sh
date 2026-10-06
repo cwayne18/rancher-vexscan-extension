@@ -212,7 +212,13 @@ NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 HISTORY_LIMIT="${HISTORY_LIMIT:-30}"
 PREV_HISTORY_JSON="$(kubectl get vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" \
   -o jsonpath='{.status.history}' 2>/dev/null || true)"
-[[ -z "$PREV_HISTORY_JSON" ]] && PREV_HISTORY_JSON="[]"
+# kubectl's jsonpath output for a field that has never been set (true on a
+# CR's first-ever successful scan) isn't reliably an empty string across
+# kubectl versions - validate it's real, non-null JSON instead of guessing
+# the exact placeholder text, and fall back to an empty history otherwise.
+if ! jq -e . >/dev/null 2>&1 <<<"$PREV_HISTORY_JSON"; then
+  PREV_HISTORY_JSON="[]"
+fi
 
 HISTORY_JSON="$(jq -c --argjson prev "$PREV_HISTORY_JSON" --argjson cap "$HISTORY_LIMIT" \
   --arg time "$NOW" --arg rke2Version "$KUBELET_VERSION" --argjson summary "$SUMMARY_JSON" '
