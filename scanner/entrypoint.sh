@@ -221,14 +221,19 @@ if ! jq -e . >/dev/null 2>&1 <<<"$PREV_HISTORY_JSON"; then
 fi
 
 # TEMPORARY DEBUG - remove once the real "invalid JSON text passed to
-# --argjson" culprit is identified. Confirmed PREV_HISTORY_JSON isn't it
-# (falls back to "[]" and still errors downstream), so check every
-# --argjson value used from here on and print whichever one is bad.
+# --argjson" culprit is identified. Round 1 (jq -e validity only) found
+# nothing, but jq -e treats a stream of multiple concatenated JSON values as
+# "valid" (it validates each one), while --argjson requires exactly ONE
+# value - so this round always prints the raw content *and* how many
+# top-level JSON values each one actually contains.
+_debug_dump() {
+  local _name="$1" _val="$2"
+  local _docs
+  _docs="$(jq -c . 2>/dev/null <<<"$_val" | wc -l | tr -d ' ')"
+  echo "DEBUG: $_name length=${#_val} docs=${_docs} value=[${_val:0:500}]" >&2
+}
 for _debug_name in SUMMARY_JSON COMPONENT_RESULTS_JSON PREV_HISTORY_JSON HISTORY_LIMIT; do
-  _debug_val="${!_debug_name}"
-  if ! jq -e . >/dev/null 2>&1 <<<"$_debug_val"; then
-    echo "DEBUG: $_debug_name is not valid JSON (length ${#_debug_val}): [${_debug_val:0:500}]" >&2
-  fi
+  _debug_dump "$_debug_name" "${!_debug_name}"
 done
 
 HISTORY_JSON="$(jq -c --argjson prev "$PREV_HISTORY_JSON" --argjson cap "$HISTORY_LIMIT" \
@@ -236,6 +241,7 @@ HISTORY_JSON="$(jq -c --argjson prev "$PREV_HISTORY_JSON" --argjson cap "$HISTOR
   ($prev + [($summary + { time: $time, rke2Version: $rke2Version })]) as $all
   | $all[-$cap:]
 ')"
+_debug_dump "HISTORY_JSON" "$HISTORY_JSON"
 
 STATUS_PATCH="$(jq -n \
   --arg rke2Version "$KUBELET_VERSION" \
