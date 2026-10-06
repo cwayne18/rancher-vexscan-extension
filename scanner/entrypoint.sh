@@ -82,6 +82,15 @@ if ! vexscan --images-from "$WORKDIR/images.txt" --all --triage --quiet \
 fi
 
 echo "==> summarizing report"
+# vexscan's `Findings []Finding` field has no `omitempty`, so Go serializes
+# a zero-finding image's nil slice as JSON `null`, not `[]`. Every jq filter
+# below assumes `.findings` is always an array (`.findings[]`), which
+# throws "Cannot iterate over null (null)" the first time a scanned image
+# has zero findings. Normalize once here instead of null-guarding every
+# filter separately.
+jq -c '.results[].findings |= (. // [])' "$WORKDIR/report.json" > "$WORKDIR/report.normalized.json"
+mv "$WORKDIR/report.normalized.json" "$WORKDIR/report.json"
+
 # Severity buckets: vexscan's own --severity values.
 # Finding buckets mirror contrib/vexscan-dashboard.py's bucket_of(): a
 # reachable/linked finding is "affected" unless an exculpatory VEX statement
