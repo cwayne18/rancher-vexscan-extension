@@ -4,6 +4,7 @@ import { isRancherPrime } from '@shell/config/version';
 import Loading from '@shell/components/Loading';
 import { Banner } from '@components/Banner';
 import SortableTable from '@shell/components/SortableTable';
+import { allHash } from '@shell/utils/promise';
 import { SCAN_REPORT } from '../config/constants';
 
 // Chart release name is fixed by charts/vexscan-scanner/Chart.yaml -
@@ -59,15 +60,15 @@ export default {
       hash.cronJobs = this.$store.dispatch('cluster/findAll', { type: WORKLOAD_TYPES.CRON_JOB });
     }
 
-    const res = await this.$allHash ? this.$allHash(hash) : Promise.all(Object.values(hash)).then((vals) => {
-      const out = {};
-
-      Object.keys(hash).forEach((k, i) => {
-        out[k] = vals[i];
-      });
-
-      return out;
-    });
+    // this.$allHash doesn't exist anywhere in @shell - allHash is a plain
+    // exported function (@shell/utils/promise), not an injected instance
+    // method. A prior version of this line guarded for both, but due to
+    // `await`/`?:` precedence (`await` binds tighter than `?:`), it only
+    // ever awaited the *reference* `this.$allHash`/the ternary's unawaited
+    // result - `res` ended up a never-resolved Promise object either way,
+    // so res.reports/res.cronJobs were always undefined regardless of what
+    // the dispatches actually returned.
+    const res = await allHash(hash);
 
     this.report = (res.reports || []).find((r) => r.metadata?.name === REPORT_NAME);
     this.cronJob = (res.cronJobs || []).find(
