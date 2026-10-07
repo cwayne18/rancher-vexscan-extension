@@ -47,9 +47,18 @@ interface ComponentResult {
 // SteveModel itself is plain JS with no .d.ts, so `spec`/`status` (set by
 // the Steve store from the raw API resource) aren't visible to the
 // TypeScript compiler without being declared here.
+//
+// Both fields use `declare` (not a plain `!:` field declaration) so TS
+// emits zero runtime code for them - pkg/vexscan's tsconfig targets
+// "esnext" with no explicit useDefineForClassFields, so TS defaults it to
+// true (ES2022+ "define" semantics). A plain field declaration would then
+// compile to a real `this.spec = undefined; this.status = undefined;`
+// assignment that runs right after super(), silently wiping out the real
+// spec/status the base SteveModel constructor had just set from the raw
+// API resource.
 export default class VexScanReport extends SteveModel {
-  spec!: { rke2Version?: string; sourceNode?: string };
-  status!: {
+  declare spec: { rke2Version?: string; sourceNode?: string };
+  declare status: {
     phase?: string;
     lastScanTime?: string;
     summary?: ScanSummary;
