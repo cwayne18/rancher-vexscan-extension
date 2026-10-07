@@ -40,13 +40,16 @@ spec:
             spec:
               type: object
               properties:
-                # Exact kubelet-reported build, e.g. "v1.30.4+rke2r1". This is
-                # what scopes the scan to "the exact version of RKE2 running
-                # on the cluster" rather than a generic/latest manifest.
+                # Exact kubelet-reported build, e.g. "v1.30.4+rke2r1", or
+                # "unknown" on a non-RKE2 cluster. Purely informational label
+                # on the report - the scan itself scans every Pod actually
+                # running in the cluster (`kubectl get pods -A -o yaml` piped
+                # into `vexscan --images-from -`), not just RKE2's own images,
+                # so this field no longer scopes/filters what gets scanned.
                 rke2Version:
                   type: string
-                # Which node the version/image manifest was sourced from, for
-                # troubleshooting mixed-version upgrade rollouts.
+                # Which node the version was read from, for troubleshooting
+                # mixed-version upgrade rollouts.
                 sourceNode:
                   type: string
             status:

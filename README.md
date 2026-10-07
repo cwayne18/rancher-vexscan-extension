@@ -1,11 +1,12 @@
 # rancher-vexscan-extension
 
 A Rancher Manager UI extension for [vexscan](https://github.com/cwayne18/vexscan):
-in-cluster, VEX-backed CVE presence/reachability triage, scoped to the exact
-RKE2 build running on each downstream cluster.
+in-cluster, VEX-backed CVE presence/reachability triage, scoped to this
+cluster's actual, live running workloads - RKE2's own images and everything
+else deployed alongside them.
 
-It's the same idea as `vexscan --from-images <(kubectl get pods ...)` or
-`contrib/vexscan-dashboard.py` in the main vexscan repo, but instead of a
+It's the same idea as `kubectl get pods -A -o yaml | vexscan --images-from -`
+or `contrib/vexscan-dashboard.py` in the main vexscan repo, but instead of a
 one-off local command and a static HTML file you email around, the scan runs
 on a schedule inside the cluster and the results show up natively in Rancher
 - in the left nav, next to Fleet, Apps, Cluster Explorer, etc.
@@ -15,32 +16,44 @@ on a schedule inside the cluster and the results show up natively in Rancher
 > published yet - this repo documents and scaffolds the full architecture so
 > it can be built out incrementally.
 
-## Why "exact RKE2 version", specifically
+## Why live pod state, specifically
 
-Every RKE2 GitHub release publishes an exact image manifest as a release
-asset, e.g. for `v1.30.4+rke2r1`:
+The scanner pipes `kubectl get pods -A -o yaml` straight into `vexscan
+--images-from -` - vexscan's own recommended pattern for scanning a live
+cluster (it recognizes the `kind: List` of `Pod` documents it gets back and
+reads every container's image). That has two real advantages over scanning a
+static image list:
 
-```
-https://github.com/rancher/rke2/releases/download/v1.30.4%2Brke2r1/rke2-images.linux-amd64.txt
-```
+- **No outbound network dependency.** An earlier version of this scanner
+  resolved the node's kubelet version (which, on an RKE2 node, *is* that
+  release's exact tag, e.g. `v1.30.4+rke2r1`) and downloaded that release's
+  image manifest from the `rke2` GitHub release. That worked, but required
+  egress to github.com from inside the cluster - a non-starter for the
+  air-gapped clusters this kind of compliance scanning is often run on - and
+  only ever covered RKE2's own images, missing everything else actually
+  deployed (ingress controllers, cert-manager, user workloads, other system
+  charts, etc).
+- **More accurate reachability.** Unlike a plain image reference, a live Pod
+  spec also carries each container's `command:`/`args:` override. A
+  container's declared image `ENTRYPOINT` isn't necessarily what's actually
+  running - e.g. `rancher/hardened-calico`'s image entrypoint is `bash`, but
+  the real pod runs `command: [/usr/bin/calico-node]`. Scanning the image
+  alone would wrongly treat bash's whole closure as reachable; reading the
+  manifest tells vexscan the truth about what's actually started.
 
-A node's kubelet version *is* that release tag - `kubectl get nodes -o
-jsonpath='{.items[0].status.nodeInfo.kubeletVersion}'` on an RKE2 node
-literally returns `v1.30.4+rke2r1`. So the scanner never has to guess a
-version or scan "whatever's running" heuristically: it reads the kubelet
-version, downloads that exact release's manifest, and hands it straight to
-`vexscan --images-from <manifest> --all --triage --format json`. Upgrade the
-cluster, and the next scheduled scan automatically re-targets the new exact
-build.
+The report still records the cluster's RKE2 build (read from kubelet
+version) as an informational label, but it no longer determines what gets
+scanned - upgrade the cluster, and the next scheduled scan picks up whatever
+images are actually running post-upgrade, same as any other change to the
+live fleet.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     subgraph Downstream Cluster
-        CJ[CronJob: vexscan-scanner] -->|kubectl get nodes| KV[kubelet version]
-        KV -->|resolves exact tag| GH[rke2 GitHub release asset:\nrke2-images.linux-ARCH.txt]
-        GH --> SCAN[vexscan --images-from ... --all --triage]
+        CJ[CronJob: vexscan-scanner] -->|kubectl get pods -A -o yaml| PODS[live Pod specs:\nimages + command/args]
+        PODS --> SCAN[vexscan --images-from - --all --triage]
         SCAN -->|summary| CR[(VexScanReport CR)]
         SCAN -->|full JSON| CM[(ConfigMap)]
     end
@@ -221,7 +234,7 @@ rancher/                  Manifests for Rancher's own management cluster
                             server - see "End-user RBAC")
 
 scanner/                  Scanner container
-  entrypoint.sh             version resolution -> manifest download -> scan -> CR/ConfigMap write
+  entrypoint.sh             kubectl get pods -> vexscan scan -> CR/ConfigMap write
   Dockerfile                built FROM ghcr.io/cwayne18/vexscan
 
 hack/                     Dev-only scripts (local RKE2 test cluster, etc.)
@@ -271,39 +284,50 @@ required.
 
 ## Validation status
 
-This repo is a scaffold/mockup, not yet run end-to-end against a real
-cluster. What's been validated for real vs. what still needs one:
+This has now been run end-to-end against a real RKE2 cluster (chart
+installed via `helm`, scanner image built/pushed and imported via
+`docker save | ctr image import`, CronJob and manual `Job` runs, and the
+extension viewed live via Rancher's UI). What's been validated for real vs.
+what's still a known gap:
 
-**Validated against real data** (built the actual `vexscan` binary and
-`skopeo` from source, ran `vexscan --images-from` against a real `rke2`
-GitHub release manifest):
-- The RKE2 release manifest URL/encoding and manifest format.
+**Validated against a real cluster**:
 - `vexscan` requires `skopeo` on `PATH` and a `/etc/containers/policy.json`
   trust policy to pull images - both were missing from the original
   `scanner/Dockerfile` and are now fixed.
+- `kubectl get pods -A -o yaml | vexscan --images-from -` against a real
+  cluster's live pod state, including the `PIPESTATUS`-based error handling
+  for a `kubectl` vs. `vexscan` failure.
 - The real batch JSON schema (`schema_version`/`mode`/`targets`/`results[]`,
   uppercase `severity`, finding `status` vocabulary, `vex` sub-object shape).
 - `entrypoint.sh`'s `jq` summary/bucket logic, run against real report JSON -
-  counts reconcile exactly against the raw finding counts.
+  counts reconcile exactly against the raw finding counts. This also
+  surfaced and fixed a real `jq --argjson` bug (empty/invalid JSON for one
+  of the piped-in values needs the same `jq -e .` validate-or-default
+  pattern already used elsewhere, not just the happy path).
 - The raw-report-vs-ConfigMap-size-limit problem described above, and the
   staged gzip/strip/cap fix, measured against real output (including
   confirming every status bucket keeps representation even under an
   artificially tiny size limit).
+- CRD admission, `--subresource status` patch semantics, CronJob/manual-Job
+  scheduling, and the ServiceAccount's RBAC, all against a live cluster.
+- The full UI, via Rancher's real Steve API against a live cluster - this
+  caught (and fixed) four separate bugs: a wrong Steve resource type string,
+  two Vue/Rancher-API misuses (`cluster/canCreate`/`canUpdate` don't exist
+  as store getters; `this.$allHash` doesn't exist as an instance method) that
+  crashed or silently no-opped page rendering, and a TypeScript
+  `useDefineForClassFields` field-declaration bug that wiped out `spec`/
+  `status` data right after the model object was constructed.
 
-**Still needs a real cluster** (no docker/kind/kubectl available in the
-sandbox this was built in): CRD admission/schema validation, `--subresource
-status` patch semantics, RBAC enforcement for the scanner's ServiceAccount
-vs. end users, CronJob/Job scheduling and `runNow()` behavior, and the UI's
-`headers()`/Steve API field shapes (never run via `yarn dev` against a live
-Rancher). If you have access to a kind/k3d cluster or a real RKE2 node, the
-fastest path to closing that gap is `helm install` this chart and watching
-the first `Job` it creates.
+**Still a known gap**: no automated test suite (CI, unit, or e2e) - all
+validation so far has been manual, interactive testing against one real
+cluster. A `context: "project"` RoleTemplate variant for tighter
+per-namespace RBAC isolation (see above) hasn't been built or tested.
 
 ## Relationship to the vexscan CLI and contrib/ scripts
 
 | | `vexscan` CLI | `contrib/vexscan-dashboard.py` | this extension |
 |---|---|---|---|
 | Runs | wherever you invoke it | local, one-off | scheduled, in-cluster |
-| Image list | you provide it | you provide it | resolved from the running RKE2 version automatically |
+| Image list | you provide it | you provide it | resolved automatically from the cluster's live pod state |
 | Output | stdout / file | one static HTML file | live CR + ConfigMap, browsable in Rancher |
 | Re-scan | re-run manually | re-run manually | scheduled, or one click ("Scan Now") |

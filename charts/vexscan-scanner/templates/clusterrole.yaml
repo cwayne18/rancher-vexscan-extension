@@ -3,8 +3,18 @@ kind: ClusterRole
 metadata:
   name: vexscan-scanner
 rules:
-  # Read node kubelet versions to resolve the exact RKE2 build running on
-  # the cluster.
+  # Read every Pod across every namespace - the scanner pipes `kubectl get
+  # pods -A -o yaml` straight into `vexscan --images-from -` to scan the
+  # live cluster's actual running images (and their command/args overrides),
+  # not just RKE2's own images. This is the broadest-scope grant in this
+  # chart: cluster-wide read of Pod specs (image/command/args - no Secrets,
+  # ConfigMaps, or pod logs/exec are granted here).
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # Read node kubelet versions, purely to label the report with the
+  # cluster's RKE2 build (informational only - the scan itself no longer
+  # depends on this).
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list"]

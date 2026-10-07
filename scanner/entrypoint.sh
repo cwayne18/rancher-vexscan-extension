@@ -1,50 +1,40 @@
 #!/usr/bin/env bash
 # Entry point for the vexscan-scanner CronJob/Job.
 #
-# 1. Reads the exact RKE2 build this cluster's node(s) report (kubelet
-#    version == RKE2's own release tag, e.g. v1.30.4+rke2r1).
-# 2. Downloads that exact release's image manifest from the rke2 GitHub
-#    release (rke2-images.linux-<arch>.txt - the default-install image set,
-#    NOT rke2-images-all, which is the union of every optional CNI/cloud-
-#    provider add-on across every possible config and would pull in images
-#    this cluster never actually runs, e.g. vSphere/AWS/Azure CSI drivers),
-#    so the scan covers exactly the images this RKE2 build actually ships -
-#    never a generic/latest or kitchen-sink list.
-# 3. Runs vexscan over that manifest and writes the full JSON to a
+# 1. Reads every Pod actually running in the cluster (`kubectl get pods -A -o
+#    yaml`) and hands that straight to `vexscan --images-from -`, which is
+#    vexscan's own recommended cluster-scanning pattern (see k8smanifest.go
+#    in the vexscan repo). This scans the real, live fleet - not just RKE2's
+#    own images - and, unlike a plain image list, also captures each
+#    container's command/args overrides, which materially changes
+#    reachability (e.g. rancher/hardened-calico's image entrypoint is bash,
+#    but the real pod runs `command: [/usr/bin/calico-node]` - scanning the
+#    image alone would wrongly treat bash's whole closure as reachable).
+#    It also needs no outbound network access, so it works air-gapped -
+#    an earlier version of this script downloaded a per-release image
+#    manifest from the rke2 GitHub release, which required egress to
+#    github.com and only ever covered RKE2's own images.
+# 2. Separately reads the node's kubelet version (best-effort, purely
+#    informational - RKE2's release tag) to label the report with the
+#    cluster's RKE2 build, without gating the scan on it.
+# 3. Runs vexscan over the live pod list and writes the full JSON to a
 #    ConfigMap, then patches the VexScanReport CR's status with a small
 #    summary (so the CR itself stays well under etcd's per-object limit).
 set -euo pipefail
 
 REPORT_NAME="${REPORT_NAME:-cluster-scan}"
 REPORT_NAMESPACE="${REPORT_NAMESPACE:-cattle-vexscan-system}"
-RKE2_IMAGE_PREFIX="${RKE2_IMAGE_PREFIX:-rancher/}"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
-echo "==> resolving RKE2 version from node kubelet version"
-KUBELET_VERSION="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')"
-
-if [[ ! "$KUBELET_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+$ ]]; then
-  echo "node kubelet version '$KUBELET_VERSION' does not look like an RKE2 build (expected vX.Y.Z+rke2rN)" >&2
-  kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge \
-    --subresource=status -p "{\"status\":{\"phase\":\"Failed\",\"message\":\"not an RKE2 cluster: kubelet version $KUBELET_VERSION\"}}" || true
-  exit 1
+echo "==> resolving RKE2 version from node kubelet version (informational only)"
+KUBELET_VERSION="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null || true)"
+if [[ "$KUBELET_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+rke2r[0-9]+$ ]]; then
+  echo "==> RKE2 version: $KUBELET_VERSION"
+else
+  echo "node kubelet version '$KUBELET_VERSION' does not look like an RKE2 build (expected vX.Y.Z+rke2rN) - recording as unknown and scanning anyway" >&2
+  KUBELET_VERSION="unknown"
 fi
-
-ARCH="$(uname -m)"
-case "$ARCH" in
-  x86_64)  RKE2_ARCH=amd64 ;;
-  aarch64) RKE2_ARCH=arm64 ;;
-  *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;;
-esac
-
-# GitHub release asset URLs url-encode "+" as %2B in the release tag.
-ENCODED_TAG="${KUBELET_VERSION//+/%2B}"
-MANIFEST_URL="https://github.com/rancher/rke2/releases/download/${ENCODED_TAG}/rke2-images.linux-${RKE2_ARCH}.txt"
-
-echo "==> RKE2 version: $KUBELET_VERSION ($RKE2_ARCH)"
-echo "==> downloading image manifest: $MANIFEST_URL"
-curl -fsSL -o "$WORKDIR/images.txt" "$MANIFEST_URL"
 
 # The chart ships the CRD but not the CR itself - create it idempotently on
 # first run so later `kubectl patch --subresource=status` calls have
@@ -63,7 +53,7 @@ EOF
 kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge --subresource=status \
   -p '{"status":{"phase":"Scanning"}}' || true
 
-echo "==> running vexscan"
+echo "==> running vexscan over live cluster pod state"
 # vexscan exits non-zero whenever any ecosystem/image fails to complete,
 # even without --fail-on (exit 1 means "the scan did not complete" by
 # design - see vexscan's own failon.go). Under `set -e` that would
@@ -72,8 +62,37 @@ echo "==> running vexscan"
 # failure instead, mark the CR Failed with vexscan's own stderr as the
 # message, and exit - still non-zero, so the Job/CronJob correctly shows
 # as failed too.
-if ! vexscan --images-from "$WORKDIR/images.txt" --all --triage --quiet \
-    --format json --out "$WORKDIR/report.json" 2>"$WORKDIR/vexscan.stderr"; then
+#
+# `kubectl get pods -A -o yaml` is piped straight into `vexscan --images-from
+# -`, vexscan's own recommended invocation for scanning a live cluster (it
+# recognizes the `kind: List` of `Pod` documents and reads every container's
+# image plus any command/args override - see k8smanifest.go upstream).
+#
+# set +e/-e around the pipeline (rather than relying on the `if ! ...`
+# pattern used elsewhere) because this needs each command's own exit status
+# via PIPESTATUS: `pipefail` alone only reports *that* something in the
+# pipe failed, as whichever exit code happens to be rightmost-nonzero, not
+# *which* stage failed - and the two failure modes need different handling
+# (a kubectl failure, e.g. missing pods RBAC, means no data was scanned at
+# all and vexscan likely never even ran; a vexscan failure means the data
+# was fine but a specific image/ecosystem choked).
+set +e
+kubectl get pods -A -o yaml 2>"$WORKDIR/kubectl.stderr" \
+  | vexscan --images-from - --all --triage --quiet \
+      --format json --out "$WORKDIR/report.json" 2>"$WORKDIR/vexscan.stderr"
+KUBECTL_STATUS="${PIPESTATUS[0]}"
+VEXSCAN_STATUS="${PIPESTATUS[1]}"
+set -e
+
+if [[ "$KUBECTL_STATUS" -ne 0 ]]; then
+  cat "$WORKDIR/kubectl.stderr" >&2
+  KUBECTL_ERR="$(tail -c 1000 "$WORKDIR/kubectl.stderr" | jq -Rs .)"
+  kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge \
+    --subresource=status -p "{\"status\":{\"phase\":\"Failed\",\"message\":$KUBECTL_ERR}}" || true
+  exit 1
+fi
+
+if [[ "$VEXSCAN_STATUS" -ne 0 ]]; then
   cat "$WORKDIR/vexscan.stderr" >&2
   VEXSCAN_ERR="$(tail -c 1000 "$WORKDIR/vexscan.stderr" | jq -Rs .)"
   kubectl patch vexscanreport "$REPORT_NAME" -n "$REPORT_NAMESPACE" --type=merge \
