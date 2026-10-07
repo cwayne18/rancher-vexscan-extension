@@ -139,9 +139,19 @@ export default {
     // A "VEX Scan - View"-only user can still see this whole page (the CR
     // status/ConfigMap reads are a separate, lesser permission), they just
     // shouldn't get a button that 403s when clicked.
+    //
+    // There's no "cluster/canCreate"/"cluster/canUpdate" store getter (only
+    // "cluster/canList" exists at the store level) - can{Create,Update} are
+    // instance getters on resource-class.js model objects instead, derived
+    // from the schema's collectionMethods (create) or the object's own
+    // "update" link (update). No Job exists yet to check an instance
+    // against, so check its schema directly; a CronJob instance already
+    // exists (this.cronJob), so use its own canUpdate getter for that half.
     canScanNow() {
-      return this.$store.getters['cluster/canCreate'](WORKLOAD_TYPES.JOB)
-        && this.$store.getters['cluster/canUpdate'](WORKLOAD_TYPES.CRON_JOB);
+      const jobSchema = this.$store.getters['cluster/schemaFor'](WORKLOAD_TYPES.JOB);
+      const canCreateJob = !!jobSchema?.collectionMethods?.some((m) => m.toLowerCase() === 'post');
+
+      return canCreateJob && !!this.cronJob?.canUpdate;
     },
 
     // The triage verdict - what vexscan actually determined about each CVE
