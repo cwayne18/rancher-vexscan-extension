@@ -35,7 +35,7 @@ export function init($plugin: any, store: any) {
     },
   });
 
-  // The CRD itself (vexscan.cattle.io.scanreport) is also browsable like any
+  // The CRD itself (vexscan.cattle.io.vexscanreport) is also browsable like any
   // other k8s resource, for anyone who wants raw/yaml access or to script
   // against it rather than use the Overview dashboard.
   configureType(SCAN_REPORT, {

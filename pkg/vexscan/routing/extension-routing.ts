@@ -10,7 +10,7 @@ const routes = [
     component: Overview,
     meta:      { product: PRODUCT_NAME },
   },
-  // Generic CRD list/detail, reused from the shell so vexscan.cattle.io.scanreport
+  // Generic CRD list/detail, reused from the shell so vexscan.cattle.io.vexscanreport
   // gets YAML view, events and conditions for free.
   {
     name:      `${ PRODUCT_NAME }-c-cluster-resource`,

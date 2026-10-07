@@ -5,7 +5,7 @@
 // $extension.getDynamic('formatters', name)). Renders a link to the core
 // Explorer ConfigMap detail view for the gzipped vexscan report named by
 // `value` (a ComponentResult's reportConfigMapRef - see
-// scanner/entrypoint.sh and models/vexscan.cattle.io.scanreport.ts).
+// scanner/entrypoint.sh and models/vexscan.cattle.io.vexscanreport.ts).
 //
 // The ConfigMap holds a single `report.json.gz` key. Large reports may have
 // had per-finding evidence chains stripped, or been capped to the top N
